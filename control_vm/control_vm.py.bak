@@ -1,0 +1,377 @@
+#!/usr/bin/python3
+import os, sys, time, subprocess, tempfile, re
+import client, timeit
+from bidict import bidict
+from collections import Counter
+import pickle
+
+out_temp = None
+fileno = None
+
+def exec_cmd(cmd, debug = True):
+    global out_temp, fileno
+    if debug:
+        print('CMD: ', cmd)
+    #out_temp = tempfile.SpooledTemporaryFile(bufsize=1000 * 1000)
+    out_temp = tempfile.SpooledTemporaryFile()
+    fileno = out_temp.fileno()
+    p1 = subprocess.Popen(cmd, stdout = fileno, stderr = fileno, shell=True)
+    p1.wait()
+    out_temp.seek(0)
+    return p1
+
+def find_str(pattern, string):
+    pat = re.compile(pattern)
+    return pat.findall(string)[0]
+
+def split_str(string):
+    return filter(lambda x:x, string.split())
+
+def b2s(s):
+    return str(s, encoding = 'utf-8')
+
+def get_res():
+    global out_temp, fileno
+    return b2s(out_temp.read())
+
+class VM:
+    vm_name = ''
+    vm_id = 0
+    num_cores = 0
+    ip = ''
+    state = ''
+
+    def __init__(self, vm_id, vm_name):
+        self.vm_id = vm_id
+        self.vm_name = vm_name
+
+    def get_ip(self):
+        cmd1 = '{"execute":"guest-network-get-interfaces"}'
+        cmd = "virsh qemu-agent-command %s '%s'" % (self.vm_name, cmd1)
+        exec_cmd(cmd)
+        content = get_res()
+        self.ip = find_str('(192\.168\.122\.[0-9]{3})', content)
+
+    def get_state(self):     #running, shut off
+        cmd = 'virsh dominfo --domain %s' % self.vm_name
+        exec_cmd(cmd)
+        content = get_res()
+        self.state = find_str('State: (.*)', content).strip()
+        self.num_cores = int(find_str('CPU\(s\): (.*)', content).strip())
+
+    def shutdown(self):
+        cmd = 'virsh shutdown %s' % self.vm_name
+        exec_cmd(cmd)
+
+    def start(self):
+        cmd = 'virsh start %s' % self.vm_name
+        exec_cmd(cmd)
+
+    def suspend(self):
+        cmd = 'virsh suspend %s' % self.vm_name
+        exec_cmd(cmd)
+
+    def resume(self):
+        cmd = 'virsh resume %s' % self.vm_name
+        exec_cmd(cmd)
+
+    def bind_core(self, vcpu, pcpu): #pcpu可以是0-143
+        cmd = 'virsh vcpupin %s %s %s' % (self.vm_name, vcpu, pcpu)
+        exec_cmd(cmd)
+
+    def setvcpus_sta(self, n_vcpu):
+        cmd = 'virsh setvcpus %s --maximum %d --config' % (self.vm_name, n_vcpu)
+        exec_cmd(cmd)
+
+    def setvcpus_dyn(self, n_vcpu):
+        cmd = 'virsh setvcpus %s %d' % (self.vm_name, n_vcpu)
+        exec_cmd(cmd)
+
+    def setmem_dyn(self, mem):
+        cmd = 'virsh setmem %s %dG' % (self.vm_name, mem)
+        exec_cmd(cmd)
+
+class VMM:
+    maps = bidict()
+    vms = []
+    num_vm = 0
+    record = []
+    records = []
+    #benchs = ['parsec.x264', 'parsec.raytrace', 'parsec.streamcluster', 'parsec.fluidanimate', 'parsec.blackscholes', 'parsec.bodytrack', 'parsec.canneal', 'parsec.freqmine', 'parsec.ferret', 'parsec.netstreamcluster', 'parsec.netferret', 'splash2x.water_spatial', 'splash2x.water_nsquared', 'splash2x.lu_ncb', 'splash2x.lu_cb', 'splash2x.barnes', 'splash2x.raytrace']
+    #benchs = ['parsec.freqmine', 'parsec.ferret', 'splash2x.lu_ncb', 'splash2x.lu_cb', 'splash2x.barnes', 'splash2x.raytrace']
+    benchs = ['splash2x.raytrace', 'splash2x.ocean_ncp', 'splash2x.barnes', 'splash2x.lu_cb', 'splash2x.radiosity', 'splash2x.water_spatial', 'parsec.fluidanimate', 'parsec.bodytrack', 'parsec.freqmine', 'parsec.ferret']
+
+    bench_id = 3
+    N_MAX = 144
+
+    def __init__(self):
+        pass
+    
+    def new_vm(self, vm_id, vm_name):
+        vm = VM(vm_id, vm_name)
+        self.vms.append(vm)
+        vm.get_ip()
+        vm.get_state()
+        print(vm.ip)
+        print(vm.state)
+        num_vm = len(self.vms)
+
+    def set_mem(self, vm_id, mem):
+        vm = self.vms[vm_id]
+        vm.setmem_dyn(mem)
+
+    def set_cores(self, vm_id, num_cores):
+        for i in range(0, self.N_MAX):
+            if i % 2 == 0:
+                self.maps[(vm_id, i)] = int(i / 2)
+            else:
+                self.maps[(vm_id, i)] = int(i / 2) + 72
+        vm = self.vms[vm_id]
+        vm.setvcpus_dyn(num_cores)
+        vm.num_cores = num_cores
+        for i in range(0, num_cores):
+            vm.bind_core(i, self.maps[(vm.vm_id, i)])
+
+    def get_ipc(self):
+        exec_cmd('pqos -t 1')
+        res = get_res()
+        #print(res)
+        res = res.split('\n')
+        ind = 0
+        while not 'CORE' in res[ind]:
+            ind += 1
+        while not 'CORE' in res[ind]:
+            ind += 1
+        ipc = {}
+        for (ind, line) in enumerate(res[ind + 1: ind + 37] + res[ind + 73: ind + 109]):
+            aline = line.split()
+            ipc[int(aline[0])] = float(aline[1])
+        return ipc
+
+    def get_freq(self):
+        exec_cmd('turbostat -q -i 1 -n 1')
+        res = get_res()
+        #print(res)
+        res = res.split('\n')
+        ind = 0
+        while not 'Package' in res[ind]:
+            ind += 1
+        freq_rea = {}
+        freq_bsy = {}
+        for (ind, line) in enumerate(res[ind + 2: ind + 74]):
+            aline = line.split()
+            freq_rea[int(aline[2])] = float(aline[3])
+            freq_bsy[int(aline[2])] = float(aline[5])
+        return [freq_rea, freq_bsy]
+
+    def get_avg(self, freqs, num):
+        freq_sum = {}
+        for i in range(0, int(self.N_MAX / 4)):
+            freq_sum[i] = 0
+            freq_sum[i + 72] = 0
+        for freq in freqs:
+            for i in range(0, int(self.N_MAX / 4)):
+                freq_sum[i] += freq[i];
+                freq_sum[i + 72] += freq[i + 72];
+        for i in range(0, int(self.N_MAX / 4)):
+            freq_sum[i] /= num
+            freq_sum[i + 72] /= num
+        return freq_sum
+
+    def get_ipcs():
+        ipcs = []
+        for i in range(0, num):
+            ipc = self.get_ipc()
+            ipcs.append(ipc)
+        avg_ipc = self.get_avg(ipcs, num)
+        return avg_ipc
+
+    def get_freqs(self, num):
+        freqs_rea = []
+        freqs_bsy = []
+        for i in range(0, num):
+            freq = self.get_freq()
+            freqs_rea.append(freq[0])
+            freqs_bsy.append(freq[1])
+        avg_freq_rea = self.get_avg(freqs_rea, num)
+        avg_freq_bsy = self.get_avg(freqs_bsy, num)
+        return [avg_freq_rea, avg_freq_bsy]
+
+    def get_freqs_ipcs(self, num):
+        freqs_rea = []
+        freqs_bsy = []
+        ipcs = []
+        for i in range(0, num):
+            freq = self.get_freq()
+            ipc = self.get_ipc()
+            freqs_rea.append(freq[0])
+            freqs_bsy.append(freq[1])
+            ipcs.append(ipc)
+        avg_freq_rea = self.get_avg(freqs_rea, num)
+        avg_freq_bsy = self.get_avg(freqs_bsy, num)
+        avg_ipc = self.get_avg(ipcs, num)
+        return [avg_freq_rea, avg_freq_bsy, avg_ipc]
+
+    def vm_ipc(self, vm_id, ipc):
+        vm = self.vms[vm_id]
+        num_cores = vm.num_cores
+        ipc_total = 0
+        for id_core in range(0, num_cores):
+            ipc_total += ipc[self.maps[(vm_id, id_core)]]
+        ipc_avg = ipc_total / num_cores
+        return ipc_avg
+
+    def vm_freq(self, vm_id, freq):
+        vm = self.vms[vm_id]
+        num_cores = vm.num_cores
+        freq_total = 0
+        for id_core in range(0, num_cores):
+            freq_total += freq[self.maps[(vm_id, id_core)]]
+        freq_avg = freq_total / num_cores
+        return freq_avg
+
+    def vm_ipc2(self, vm_id, num):
+        ipc = self.get_ipcs(num)
+        print('ipc:', ipc)
+        ipc_vm = self.vm_ipc(vm_id, ipc)
+        print('ipc_vm: ', ipc_vm)
+        return ipc_vm
+
+
+    def vm_freq2(self, vm_id, num):
+        freq = self.get_freqs(num)
+        print('freq:', freq)
+        freq_rea_vm = self.vm_freq(vm_id, freq[0])
+        freq_bsy_vm = self.vm_freq(vm_id, freq[1])
+        print('freq_vm: ', freq_rea_vm, freq_bsy_vm)
+        return [freq_rea_vm, freq_bsy_vm]
+
+    def vm_freq_ipc2(self, vm_id, num):
+        res = self.get_freqs_ipcs(num)
+        print('freq_rea, frea_bsy and ipc:', res)
+        freq_rea_vm = self.vm_freq(vm_id, res[0])
+        freq_bsy_vm = self.vm_freq(vm_id, res[1])
+        ipc_vm = self.vm_ipc(vm_id, res[2])
+        print('freq_rea_vm, freq_bsy_vm and ipc_vm is: ', freq_rea_vm, freq_bsy_vm, ipc_vm)
+        return [freq_rea_vm, freq_bsy_vm, ipc_vm]
+
+    def preprocess(self, vm_id, bench_id, num_cores):
+        time.sleep(5)
+        self.bench_id = bench_id
+        vm = self.vms[vm_id]
+        self.set_cores(vm_id, num_cores)
+        client.send('tasks:%d %s' % (vm.num_cores, self.benchs[self.bench_id]))
+        time.sleep(1)
+        self.record = []
+        self.record.append(vm.num_cores)
+        num_freq = 6
+        res = self.vm_freq_ipc2(vm_id, num_freq)
+        self.record.append(res[0])
+        self.record.append(res[1])
+        self.record.append(res[2])
+
+    def postprocess(self, vm_id, data):
+        data_dir = 'records'
+        vm = self.vms[vm_id]
+        data = float(data)
+        print('avg_perf: %f' % data)
+        self.record.append(data)
+        self.records.append(self.record)
+        print('bench_id: %d, benchmark: %s, num_cores: %d\nrecords: ' % (self.bench_id, self.benchs[self.bench_id], vm.num_cores), self.records)
+        f = open('%s/%03d_%s.log' % (data_dir, self.bench_id, self.benchs[self.bench_id]), 'wb')
+        pickle.dump(self.records, f)
+        f.close()
+
+    def read_records(self, vm_id, bench_id):
+        data_dir = 'records_20211109'
+        vm = self.vms[vm_id]
+        f = open('%s/%03d_%s.log' % (data_dir, bench_id, self.benchs[bench_id]), 'rb')
+        records = pickle.load(f)
+        f.close()
+        print('bench_id: %d, benchmark: %s, num_cores: %d\nrecords: ' % (bench_id, self.benchs[bench_id], vm.num_cores), records)
+
+def decode(data):
+    pat = re.compile('(.*):(.*)')
+    res = pat.findall(data)
+    return res[0]
+
+class SST:
+    def __init__(self):
+        pass
+
+    def tf(self, num):
+        cmd = 'intel-speed-select --cpu 0-%d turbo-freq enable -a' % num
+        exec_cmd(cmd)
+
+    def bf(self, num):
+        cmd = 'intel-speed-select base-freq enable -a' % num
+        exec_cmd(cmd)
+
+    def test(self):
+        prog = 'intel-speed-select'
+        high_cores = 8
+        total_cores = 36
+        for ind in range(0, high_cores):
+            cmd = '%s core-power --cpu %d assoc --clot 0' % (prog, ind)
+            exec_cmd(cmd)
+
+        for ind in range(high_cores, total_cores):
+            cmd = '%s core-power --cpu %d assoc --clot 3' % (prog, ind)
+            exec_cmd(cmd)
+
+if __name__ == "__main__":
+    param = sys.argv[1]
+    vm_id = 0
+    vm_name = 'centos8_test%d' % vm_id
+    vmm = VMM()
+    vmm.new_vm(vm_id, vm_name)
+    if param == 'core':
+        vmm.set_cores(vm_id, 72)
+        vmm.set_mem(vm_id, 16)
+    elif param == 'test':
+        vmm.set_cores(vm_id, 72)
+        vmm.set_mem(vm_id, 16)
+        vmm.vm_freq_ipc2(vm_id, 6)
+    elif param == 'read':
+        for bench_id in range(0, len(vmm.benchs)):
+            vmm.read_records(vm_id, bench_id)
+    elif param == 'run':
+        #sst = SST()
+        #sst.test()
+
+        client.set_ip(vmm.vms[0].ip)
+        client.connect()
+        client.send('begin:0')
+
+        num_cores = 8
+        bench_id = 0
+        while True:
+            (cmd, data) = decode(client.recv())
+            if cmd == 'begin':
+                num_cores = 8
+                vmm.preprocess(vm_id, bench_id, num_cores)
+            elif cmd == 'res':
+                vmm.postprocess(vm_id, data)
+
+                #next run
+                #num_cores = 4
+                #bench_id += 1
+                #vmm.records = []
+                #vmm.preprocess(vm_id, bench_id, num_cores)
+
+                if num_cores == 72:
+                    if bench_id == len(vmm.benchs) - 1:
+                        client.send('end:0')
+                    else:
+                        num_cores = 8
+                        bench_id += 1
+                        vmm.records = []
+                        vmm.preprocess(vm_id, bench_id, num_cores)
+                else:
+                    num_cores += 8
+                    vmm.preprocess(vm_id, bench_id, num_cores)
+            elif cmd == 'end':
+                break
+        client.client_close()
+    else:
+        print("param error")

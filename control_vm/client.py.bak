@@ -1,0 +1,52 @@
+#!/usr/bin/python
+from socket import *
+
+#HOST = '127.0.0.1' # or 'localhost'
+HOST = '200.201.119.35' # or 'localhost'
+#HOST = '192.168.122.153' # or 'localhost'
+PORT = 12345
+BUFSIZ = 1024
+ADDR = (HOST,PORT)
+
+tcpCliSock = None
+def b2s(s):
+    return str(s, encoding = 'utf-8')
+
+def set_ip(ip):
+    global ADDR
+    ADDR = (ip, PORT)
+
+def connect():
+    global tcpCliSock
+    tcpCliSock = socket(AF_INET,SOCK_STREAM)
+    tcpCliSock.connect(ADDR)
+
+def recv():
+    global tcpCliSock
+    data = b2s(tcpCliSock.recv(BUFSIZ))
+    print('Recv: ', data)
+    return data
+
+def send(data):
+    global tcpCliSock
+    print('Send: ', data)
+    tcpCliSock.send(data.encode())
+
+def client_close():
+    global tcpCliSock
+    tcpCliSock.close()
+
+#tcpCliSock = socket(AF_INET,SOCK_STREAM)
+#tcpCliSock.connect(ADDR)
+#while True:
+#    #data2 = input('>')
+#    data2 = 'hello'
+#    print 'send ', data2
+#    if not data2:
+#        break
+#    tcpCliSock.send(data2.encode())
+#    data1 = tcpCliSock.recv(BUFSIZ)
+#    if not data1:
+#        break
+#    print 'recv ', data1.decode('utf-8') 
+#tcpCliSock.close()

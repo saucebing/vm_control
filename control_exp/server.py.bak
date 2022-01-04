@@ -1,0 +1,62 @@
+#!/usr/bin/python
+from socket import *
+import time
+from time import ctime
+
+HOST = ''
+PORT = 12345
+BUFSIZ = 1024 *1024
+ADDR = (HOST,PORT)
+
+tcpCliSock = None
+def b2s(s):
+    return str(s, encoding = 'utf-8')
+
+def build():
+    global tcpSerSock
+    global tcpCliSock
+    tcpSerSock = socket(AF_INET,SOCK_STREAM)
+    tcpSerSock.bind(ADDR)
+    tcpSerSock.listen(5)
+    print('Test Server: waiting for connection')
+    tcpCliSock, addr = tcpSerSock.accept()
+    print('Connnecting from: ', addr)
+    
+def recv():
+    global tcpCliSock
+    data = b2s(tcpCliSock.recv(BUFSIZ))
+    print('Recv: ', data)
+    return data
+
+def send(data):
+    global tcpCliSock
+    print('Send: ', data)
+    tcpCliSock.send(data.encode())
+
+def client_close():
+    global tcpCliSock
+    tcpCliSock.close()
+
+def server_close():
+    global tcpSerSock
+    tcpSerSock.close()
+#tcpSerSock = socket(AF_INET,SOCK_STREAM)
+#tcpSerSock.bind(ADDR)
+#tcpSerSock.listen(5)
+#
+#while True:
+#    print 'waiting for connection...' 
+#    tcpCliSock, addr = tcpSerSock.accept()
+#    print '...connnecting from:', addr 
+#
+#    while True:
+#        data = tcpCliSock.recv(BUFSIZ)
+#        print 'recv ', data.decode('utf-8')
+#        if not data:
+#            break
+#        time.sleep(1)
+#        data1 = '[%s] %s' % (ctime(), data)
+#        tcpCliSock.send(data1.encode())
+#        print 'send ', data1
+#    tcpCliSock.close()
+#tcpSerSock.close()
