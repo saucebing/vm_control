@@ -171,13 +171,17 @@ class VMM:
 
     bench_id = 0
     run_index = 0
-    N_MAX = 80
+    N_CORE = 0 #number of logical cores
+    H_CORE = 0 #number of logical cores in one socket
+    Q_CORE = 0 #number of logical cores in one socket
     params = []
     mode = ''
 
     def __init__(self):
-        VMM.N_MAX = 80
-        VMM.visited = [False] * VMM.N_MAX
+        VMM.N_CORE = 80
+        VMM.H_CORE = int(VMM.N_CORE / 2)
+        VMM.Q_CORE = int(VMM.N_CORE / 4)
+        VMM.visited = [False] * VMM.N_CORE
 
     def new_vm(self, vm_id, vm_name):
         vm = VM(vm_id, vm_name)
@@ -191,16 +195,15 @@ class VMM:
 
     def set_cores(self, vm_id, num_cores, begin_core = 0):
         cores = range(0, num_cores)
-        HALF_CORES = int(VMM.N_MAX / 2)
         for i in cores:
-            for j in (list(range(begin_core, HALF_CORES)) + list(range(0, begin_core))):
+            for j in (list(range(begin_core, VMM.H_CORE)) + list(range(0, begin_core))):
               if j % 2 == 0 and not VMM.visited[int(j / 2)]:
                   self.maps_vm_core[(vm_id, i)] = int(j / 2)
                   VMM.visited[int(j / 2)] = True
                   break
-              elif j % 2 == 1 and not VMM.visited[int(j / 2) + HALF_CORES]:
-                  self.maps_vm_core[(vm_id, i)] = int(j / 2) + HALF_CORES
-                  VMM.visited[int(j / 2) + HALF_CORES] = True
+              elif j % 2 == 1 and not VMM.visited[int(j / 2) + VMM.H_CORE]:
+                  self.maps_vm_core[(vm_id, i)] = int(j / 2) + VMM.H_CORE
+                  VMM.visited[int(j / 2) + VMM.H_CORE] = True
                   break
         print('maps_vm_core:', self.maps_vm_core)
         vm = self.vms[vm_id]
@@ -220,7 +223,7 @@ class VMM:
         while not 'CORE' in res[ind]:
             ind += 1
         ipc = {}
-        for (ind, line) in enumerate(res[ind + 1: ind + 21] + res[ind + 41: ind + 61]):
+        for (ind, line) in enumerate(res[ind + 1: ind + VMM.Q_CORE + 1] + res[ind + VMM.H_CORE + 1: ind + VMM.H_CORE + VMM.Q_CORE + 1]):
             aline = line.split()
             ipc[int(aline[0])] = float(aline[1])
         return ipc
@@ -235,7 +238,7 @@ class VMM:
             ind += 1
         freq_rea = {}
         freq_bsy = {}
-        for (ind, line) in enumerate(res[ind + 2: ind + 74]):
+        for (ind, line) in enumerate(res[ind + 2: ind + 2 + VMM.H_CORE]):
             aline = line.split()
             freq_rea[int(aline[2])] = float(aline[3])
             freq_bsy[int(aline[2])] = float(aline[5])
@@ -243,16 +246,16 @@ class VMM:
 
     def get_avg(self, freqs, num):
         freq_sum = {}
-        for i in range(0, int(self.N_MAX / 4)):
+        for i in range(0, VMM.Q_CORE):
             freq_sum[i] = 0
-            freq_sum[i + 40] = 0
+            freq_sum[i + VMM.H_CORE] = 0
         for freq in freqs:
-            for i in range(0, int(self.N_MAX / 4)):
+            for i in range(0, VMM.Q_CORE):
                 freq_sum[i] += freq[i];
-                freq_sum[i + 40] += freq[i + 40];
-        for i in range(0, int(self.N_MAX / 4)):
+                freq_sum[i + VMM.H_CORE] += freq[i + VMM.H_CORE];
+        for i in range(0, int(self.N_CORE / 4)):
             freq_sum[i] /= num
-            freq_sum[i + 40] /= num
+            freq_sum[i + VMM.H_CORE] /= num
         return freq_sum
 
     def get_ipcs():
@@ -344,7 +347,7 @@ class VMM:
         if vm_id == 0:
             return num_cores
         elif vm_id == 1:
-            return int(VMM.N_MAX / 2) - num_cores
+            return VMM.H_CORE  - num_cores
 
     def param_begin_core(self, vm_id, begin_core):
         if self.mode == 'num_cores':
@@ -357,7 +360,7 @@ class VMM:
 
     def end_event(self, num_cores, begin_core):
         if self.mode == 'num_cores':
-            return (self.num_vms == 1 and num_cores == 40) or (self.num_vms == 2 and num_cores == 36)
+            return (self.num_vms == 1 and num_cores == VMM.H_CORE) or (self.num_vms == 2 and num_cores == VMM.H_CORE - 4)
         elif self.mode == 'begin_core':
             return begin_core == num_cores
 
@@ -394,6 +397,7 @@ class VMM:
             self.record[vm_id].append(res_vm[0])
             self.record[vm_id].append(res_vm[1])
             self.record[vm_id].append(res_vm[2])
+        #vm_id, bench_id, bench_name, begin_core, num_cores, avg_freq, freq_rea, freq_avg, ipc, time
 
     def postprocess(self):
         data_dir = 'records'
@@ -414,7 +418,7 @@ class VMM:
             #pickle.dump(self.record[vm_id], f)
             pickle.dump(self.records[vm_id], f)
             f.close()
-        VMM.visited = [False] * VMM.N_MAX
+        VMM.visited = [False] * VMM.N_CORE
         self.maps_vm_core = bidict()
 
     def read_records(self, data_dir, vm_id, run_index, is_print = True):
@@ -590,7 +594,7 @@ if __name__ == "__main__":
             vm.get_ip()
     elif param == 'test':
         vm_id = 0
-        vmm.set_cores(vm_id, 40)
+        vmm.set_cores(vm_id, VMM.H_CORE)
         vmm.set_mem(vm_id, 16)
         res = vmm.get_freqs_ipcs(num)
         vmm.vm_freq_ipc2(vm_id, 6, res)
@@ -607,7 +611,7 @@ if __name__ == "__main__":
         num_figs = 3
         xlabels = ['Number of Threads', 'Number of Threads', 'Frequency(MHz)']
         ylabels = ['Frequency(MHz)', 'Run Time(s)', 'Run Time(s)']
-        xaxis = [range(0, 80, 8), range(0, 80, 8), None]
+        xaxis = [range(0, VMM.H_CORE + 4, 4), range(0, VMM.H_CORE + 4, 4), None]
         [figs, axs] = vmm.pre_draw_2(num_figs)
 
         for id_bench in range(0, num_benchs):
