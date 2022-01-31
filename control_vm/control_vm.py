@@ -5,9 +5,11 @@ from bidict import bidict
 from collections import Counter
 import pickle
 import random
-#import paramiko
+import paramiko
 
 import numpy as np
+import matplotlib
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from scipy.interpolate import splev, splrep
 
@@ -20,7 +22,6 @@ def eprint(*args, **kwargs):
 def exec_cmd(cmd, index = 0, wait = True, vm_id = 0):
     global out_temp, fileno
     print('[VM%d]: CMD: ' % vm_id, cmd)
-    out_temp = tempfile.SpooledTemporaryFile(bufsize=1000 * 1000)
     out_temp[index] = tempfile.SpooledTemporaryFile()
     fileno[index] = out_temp[index].fileno()
     p1 = subprocess.Popen(cmd, stdout = fileno[index], stderr = fileno[index], shell=True)
@@ -97,6 +98,7 @@ class VM:
         self.client.set_port(self.port)
 
     def connect(self):
+        self.get_state()
         if self.state == 'running':
             self.get_ip()
         self.print('ip:', self.ip)
@@ -114,11 +116,13 @@ class VM:
         return self.client.recv()
 
     def shutdown(self):
+        vm.get_state()
         if self.state == 'running':
             cmd = 'virsh shutdown %s' % self.vm_name
             exec_cmd(cmd, vm_id = self.vm_id)
 
     def start(self):
+        vm.get_state()
         if self.state == 'shut off':
             cmd = 'virsh start %s' % self.vm_name
             exec_cmd(cmd, vm_id = self.vm_id)
@@ -158,7 +162,8 @@ class VMM:
     num_vms = 0
     record = []
     records = []
-    benchs = ['splash2x.raytrace', 'splash2x.ocean_ncp', 'splash2x.barnes', 'splash2x.lu_cb', 'splash2x.radiosity', 'splash2x.water_spatial', 'parsec.fluidanimate', 'parsec.freqmine', 'parsec.ferret', 'parsec.blackscholes']
+    benchs = ['splash2x.raytrace']
+    #benchs = ['splash2x.raytrace', 'splash2x.ocean_ncp', 'splash2x.barnes', 'splash2x.lu_cb', 'splash2x.radiosity', 'splash2x.water_spatial', 'parsec.fluidanimate', 'parsec.freqmine', 'parsec.ferret', 'parsec.blackscholes']
     #benchs = ['splash2x.raytrace', 'splash2x.ocean_ncp', 'splash2x.water_spatial']
 
     #benchs = ['splash2x.raytrace', 'splash2x.ocean_ncp', 'splash2x.water_spatial', 'parsec.blackscholes']
@@ -166,12 +171,12 @@ class VMM:
 
     bench_id = 0
     run_index = 0
-    N_MAX = 144
+    N_MAX = 80
     params = []
     mode = ''
 
     def __init__(self):
-        VMM.N_MAX = 144
+        VMM.N_MAX = 80
         VMM.visited = [False] * VMM.N_MAX
 
     def new_vm(self, vm_id, vm_name):
@@ -186,15 +191,16 @@ class VMM:
 
     def set_cores(self, vm_id, num_cores, begin_core = 0):
         cores = range(0, num_cores)
+        HALF_CORES = int(VMM.N_MAX / 2)
         for i in cores:
-            for j in (list(range(begin_core, int(VMM.N_MAX / 2))) + list(range(0, begin_core))):
+            for j in (list(range(begin_core, HALF_CORES)) + list(range(0, begin_core))):
               if j % 2 == 0 and not VMM.visited[int(j / 2)]:
                   self.maps_vm_core[(vm_id, i)] = int(j / 2)
                   VMM.visited[int(j / 2)] = True
                   break
-              elif j % 2 == 1 and not VMM.visited[int(j / 2) + 72]:
-                  self.maps_vm_core[(vm_id, i)] = int(j / 2) + 72
-                  VMM.visited[int(j / 2) + 72] = True
+              elif j % 2 == 1 and not VMM.visited[int(j / 2) + HALF_CORES]:
+                  self.maps_vm_core[(vm_id, i)] = int(j / 2) + HALF_CORES
+                  VMM.visited[int(j / 2) + HALF_CORES] = True
                   break
         print('maps_vm_core:', self.maps_vm_core)
         vm = self.vms[vm_id]
@@ -204,7 +210,7 @@ class VMM:
             vm.bind_core(i, self.maps_vm_core[(vm.vm_id, i)])
 
     def get_ipc(self):
-        exec_cmd('pqos -t 1')
+        exec_cmd('pqos-msr -t 1')
         res = get_res()
         #print(res)
         res = res.split('\n')
@@ -214,7 +220,7 @@ class VMM:
         while not 'CORE' in res[ind]:
             ind += 1
         ipc = {}
-        for (ind, line) in enumerate(res[ind + 1: ind + 37] + res[ind + 73: ind + 109]):
+        for (ind, line) in enumerate(res[ind + 1: ind + 21] + res[ind + 41: ind + 61]):
             aline = line.split()
             ipc[int(aline[0])] = float(aline[1])
         return ipc
@@ -239,14 +245,14 @@ class VMM:
         freq_sum = {}
         for i in range(0, int(self.N_MAX / 4)):
             freq_sum[i] = 0
-            freq_sum[i + 72] = 0
+            freq_sum[i + 40] = 0
         for freq in freqs:
             for i in range(0, int(self.N_MAX / 4)):
                 freq_sum[i] += freq[i];
-                freq_sum[i + 72] += freq[i + 72];
+                freq_sum[i + 40] += freq[i + 40];
         for i in range(0, int(self.N_MAX / 4)):
             freq_sum[i] /= num
-            freq_sum[i + 72] /= num
+            freq_sum[i + 40] /= num
         return freq_sum
 
     def get_ipcs():
@@ -351,7 +357,7 @@ class VMM:
 
     def end_event(self, num_cores, begin_core):
         if self.mode == 'num_cores':
-            return (self.num_vms == 1 and num_cores == 72) or (self.num_vms == 2 and num_cores == 68)
+            return (self.num_vms == 1 and num_cores == 40) or (self.num_vms == 2 and num_cores == 36)
         elif self.mode == 'begin_core':
             return begin_core == num_cores
 
@@ -441,9 +447,9 @@ class VMM:
             vm.print('')
         return records
 
-    def pre_draw(self, data_dir, num_benchs):
+    def pre_draw(self, data_dir, benchs):
         records_total = []
-        for bench_id in range(0, len(num_benchs)):
+        for bench_id in range(0, len(benchs)):
             records_total.append(self.read_records(data_dir, 0, bench_id, False))
         #different benchmarks, different experiments, different vms
         num_benchs = len(records_total)
@@ -568,7 +574,7 @@ if __name__ == "__main__":
         vmm.new_vm(vm_id, vm_name)
     if param == 'core':
         for vm_id in range(0, num_vms):
-            num_cores = 8
+            num_cores = 4
             vmm.set_cores(vm_id, num_cores)
             vmm.set_mem(vm_id, 64)
     elif param == 'start' or param == 'shutdown':
@@ -584,65 +590,67 @@ if __name__ == "__main__":
             vm.get_ip()
     elif param == 'test':
         vm_id = 0
-        vmm.set_cores(vm_id, 72)
+        vmm.set_cores(vm_id, 40)
         vmm.set_mem(vm_id, 16)
         res = vmm.get_freqs_ipcs(num)
         vmm.vm_freq_ipc2(vm_id, 6, res)
     elif param == 'read':
-        data_dir = 'records_20211123_one_vm_perf_thread'
+        #data_dir = 'records_20211123_one_vm_perf_thread'
+        data_dir = 'records'
         for bench_id in range(0, len(vmm.benchs)):
             for vm_id in range(0, num_vms):
                 vmm.read_records(data_dir, vm_id, bench_id)
     elif param == 'draw':
         #data_dir = 'records_20211123_one_vm_perf_thread'
-        #[num_benchs, num_exps, num_vms, vms_exps_benchs] = vmm.pre_draw(data_dir, vmm.num_benchs)
-        #num_figs = 3
-        #xlabels = ['Number of Threads', 'Number of Threads', 'Frequency(MHz)']
-        #ylabels = ['Frequency(MHz)', 'Run Time(s)', 'Run Time(s)']
-        #xaxis = [range(0, 80, 8), range(0, 80, 8), None]
-        #[figs, axs] = vmm.pre_draw_2(num_figs)
+        data_dir = 'records'
+        [num_benchs, num_exps, num_vms, vms_exps_benchs] = vmm.pre_draw(data_dir, vmm.benchs)
+        num_figs = 3
+        xlabels = ['Number of Threads', 'Number of Threads', 'Frequency(MHz)']
+        ylabels = ['Frequency(MHz)', 'Run Time(s)', 'Run Time(s)']
+        xaxis = [range(0, 80, 8), range(0, 80, 8), None]
+        [figs, axs] = vmm.pre_draw_2(num_figs)
 
-        #for id_bench in range(0, num_benchs):
-        #    num_cores = []
-        #    bzy_freq = []
-        #    runtime = []
-        #    for id_exp in range(0, num_exps):
-        #        for id_vm in range(0, 1):
-        #            ele = vms_exps_benchs[id_bench][id_exp][id_vm]
-        #            num_cores.append(ele.num_cores)
-        #            bzy_freq.append(ele.bzy_freq)
-        #            runtime.append(ele.runtime)
-        #            ele.print()
-        #    axs[0].plot(num_cores, bzy_freq, label = vms_exps_benchs[id_bench][0][0].bench_name)
-        #    axs[1].plot(num_cores, runtime, label = vms_exps_benchs[id_bench][0][0].bench_name)
-        #    axs[2].plot(bzy_freq, runtime, label = vms_exps_benchs[id_bench][0][0].bench_name)
+        for id_bench in range(0, num_benchs):
+            num_cores = []
+            bzy_freq = []
+            runtime = []
+            for id_exp in range(0, num_exps):
+                for id_vm in range(0, 1):
+                    ele = vms_exps_benchs[id_bench][id_exp][id_vm]
+                    num_cores.append(ele.num_cores)
+                    bzy_freq.append(ele.bzy_freq)
+                    runtime.append(ele.runtime)
+                    ele.print()
+            axs[0].plot(num_cores, bzy_freq, label = vms_exps_benchs[id_bench][0][0].bench_name)
+            axs[1].plot(num_cores, runtime, label = vms_exps_benchs[id_bench][0][0].bench_name)
+            axs[2].plot(bzy_freq, runtime, label = vms_exps_benchs[id_bench][0][0].bench_name)
 
         #vmm.post_draw(num_figs, axs)
 
-        data_dir = 'records_20211123_two_vms_perf_thread'
-        [num_benchs, num_exps, num_vms, vms_exps_benchs] = vmm.pre_draw(data_dir, [None] * 3)
-        num_figs = 1
-        xlabels = ['Number of Threads']
-        ylabels = ['Frequency(MHz)']
-        xaxis = [range(0, 80, 8)]
+        #data_dir = 'records_20211123_two_vms_perf_thread'
+        #[num_benchs, num_exps, num_vms, vms_exps_benchs] = vmm.pre_draw(data_dir, [None] * 3)
+        #num_figs = 1
+        #xlabels = ['Number of Threads']
+        #ylabels = ['Frequency(MHz)']
+        #xaxis = [range(0, 80, 8)]
 
-        for id_bench_beg in range(0, 3):
-            [figs, axs] = vmm.pre_draw_2(num_figs)
+        #for id_bench_beg in range(0, 3):
+        #    [figs, axs] = vmm.pre_draw_2(num_figs)
 
-            for id_bench in range(id_bench_beg, id_bench_beg + 1):
-                num_cores = [[], []]
-                bzy_freq = [[], []]
-                runtime = [[], []]
-                for id_exp in range(0, num_exps):
-                    for id_vm in range(0, 2):
-                        ele = vms_exps_benchs[id_bench][id_exp][id_vm]
-                        num_cores[id_vm].append(ele.num_cores)
-                        bzy_freq[id_vm].append(ele.bzy_freq)
-                        runtime[id_vm].append(ele.runtime)
-                        #ele.print()
-                for id_vm in range(0, 2):
-                    axs[0].plot(num_cores[id_vm], bzy_freq[id_vm], label = vms_exps_benchs[id_bench][0][id_vm].bench_name)
-            vmm.post_draw(num_figs, axs)
+        #    for id_bench in range(id_bench_beg, id_bench_beg + 1):
+        #        num_cores = [[], []]
+        #        bzy_freq = [[], []]
+        #        runtime = [[], []]
+        #        for id_exp in range(0, num_exps):
+        #            for id_vm in range(0, 2):
+        #                ele = vms_exps_benchs[id_bench][id_exp][id_vm]
+        #                num_cores[id_vm].append(ele.num_cores)
+        #                bzy_freq[id_vm].append(ele.bzy_freq)
+        #                runtime[id_vm].append(ele.runtime)
+        #                #ele.print()
+        #        for id_vm in range(0, 2):
+        #            axs[0].plot(num_cores[id_vm], bzy_freq[id_vm], label = vms_exps_benchs[id_bench][0][id_vm].bench_name)
+        #    vmm.post_draw(num_figs, axs)
         plt.show()
 
     elif param == 'run':
@@ -652,14 +660,15 @@ if __name__ == "__main__":
             vmm.records[vm_id] = []
             if not debug:
                 vmm.force_cmd(vm_id)
-            #vmm.vms[vm_id].set_port(12345)
+            vmm.vms[vm_id].set_port(12345)
             vmm.vms[vm_id].connect()
 
         cmd = [None] * num_vms
         data = [None] * num_vms
         num_cores = 0 
         begin_core = 0
-        vmm.init_mode('begin_core')
+        #vmm.init_mode('begin_core')
+        vmm.init_mode('num_cores')
         while True:
             for vm_id in range(0, num_vms):
                 (cmd[vm_id], data[vm_id]) = decode(vmm.vms[vm_id].recv())
@@ -669,12 +678,12 @@ if __name__ == "__main__":
                 elif vmm.mode == 'begin_core':
                     num_cores = 64
 
-                sst = SST()
-                if vmm.mode == 'num_cores':
-                    sst.tf_close()
-                elif vmm.mode == 'begin_core':
-                    sst.tf(int(num_cores / 2)) #num is the number of physical cores
-                time.sleep(1)
+                #sst = SST()
+                #if vmm.mode == 'num_cores':
+                #    sst.tf_close()
+                #elif vmm.mode == 'begin_core':
+                #    sst.tf(int(num_cores / 2)) #num is the number of physical cores
+                #time.sleep(1)
 
                 vmm.set_params(num_cores, begin_core, data)
                 vmm.preprocess()
