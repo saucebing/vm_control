@@ -174,6 +174,8 @@ class VMM:
     N_CORE = 0 #number of logical cores
     H_CORE = 0 #number of logical cores in one socket
     Q_CORE = 0 #number of logical cores in one socket
+    N_RDT = 0 #number of RDT metrics
+    N_FREQ = 0 #number of frequency metrics
     params = []
     mode = ''
 
@@ -181,6 +183,8 @@ class VMM:
         VMM.N_CORE = 80
         VMM.H_CORE = int(VMM.N_CORE / 2)
         VMM.Q_CORE = int(VMM.N_CORE / 4)
+        VMM.N_RDT = 5
+        VMM.N_FREQ = 2
         VMM.visited = [False] * VMM.N_CORE
 
     def new_vm(self, vm_id, vm_name):
@@ -193,18 +197,30 @@ class VMM:
         vm = self.vms[vm_id]
         vm.setmem_dyn(mem)
 
-    def set_cores(self, vm_id, num_cores, begin_core = 0):
-        cores = range(0, num_cores)
-        for i in cores:
-            for j in (list(range(begin_core, VMM.H_CORE)) + list(range(0, begin_core))):
-              if j % 2 == 0 and not VMM.visited[int(j / 2)]:
-                  self.maps_vm_core[(vm_id, i)] = int(j / 2)
-                  VMM.visited[int(j / 2)] = True
-                  break
-              elif j % 2 == 1 and not VMM.visited[int(j / 2) + VMM.H_CORE]:
-                  self.maps_vm_core[(vm_id, i)] = int(j / 2) + VMM.H_CORE
-                  VMM.visited[int(j / 2) + VMM.H_CORE] = True
-                  break
+    def set_cores(self, vm_id, num_cores, begin_core = 0, same_core = 0):
+        num_pcores = int(num_cores / 2)
+        local_core_id = 0
+        for global_core_id in (list(range(begin_core, VMM.Q_CORE)) + list(range(0, begin_core))):
+            if not VMM.visited[global_core_id]:
+                if begin_core == 0 and vm_id != 0:
+                    global_core_id -= int(same_core / 2)
+                self.maps_vm_core[(vm_id, local_core_id)] = global_core_id
+                local_core_id += 1
+                VMM.visited[global_core_id] = True
+                self.maps_vm_core[(vm_id, local_core_id)] = global_core_id + VMM.H_CORE
+                local_core_id += 1
+                VMM.visited[global_core_id + VMM.H_CORE] = True
+        #cores = range(0, num_cores)
+        #for i in cores:
+        #    for j in (list(range(begin_core, VMM.H_CORE)) + list(range(0, begin_core))):
+        #      if j % 2 == 0 and not VMM.visited[int(j / 2)]:
+        #          self.maps_vm_core[(vm_id, i)] = int(j / 2)
+        #          VMM.visited[int(j / 2)] = True
+        #          break
+        #      elif j % 2 == 1 and not VMM.visited[int(j / 2) + VMM.H_CORE]:
+        #          self.maps_vm_core[(vm_id, i)] = int(j / 2) + VMM.H_CORE
+        #          VMM.visited[int(j / 2) + VMM.H_CORE] = True
+        #          break
         print('maps_vm_core:', self.maps_vm_core)
         vm = self.vms[vm_id]
         vm.setvcpus_dyn(num_cores)
@@ -212,7 +228,7 @@ class VMM:
         for i in range(0, num_cores):
             vm.bind_core(i, self.maps_vm_core[(vm.vm_id, i)])
 
-    def get_ipc(self):
+    def get_rdt(self):
         exec_cmd('pqos-msr -t 1')
         res = get_res()
         #print(res)
@@ -222,11 +238,17 @@ class VMM:
             ind += 1
         while not 'CORE' in res[ind]:
             ind += 1
-        ipc = {}
+        rdts = []
+        for i in range(0, VMM.N_RDT):
+            rdts.append({})
         for (ind, line) in enumerate(res[ind + 1: ind + VMM.Q_CORE + 1] + res[ind + VMM.H_CORE + 1: ind + VMM.H_CORE + VMM.Q_CORE + 1]):
             aline = line.split()
-            ipc[int(aline[0])] = float(aline[1])
-        return ipc
+            rdts[0][int(aline[0])] = float(aline[1]) #ipc
+            rdts[1][int(aline[0])] = float(aline[2][:-1]) #miss
+            rdts[2][int(aline[0])] = float(aline[3]) #LLC (KB)
+            rdts[3][int(aline[0])] = float(aline[4]) #MBL (MB/s)
+            rdts[4][int(aline[0])] = float(aline[5]) #MBR (MB/s)
+        return rdts
 
     def get_freq(self):
         exec_cmd('turbostat -q -i 1 -n 1')
@@ -236,103 +258,66 @@ class VMM:
         ind = 0
         while not 'Package' in res[ind]:
             ind += 1
-        freq_rea = {}
-        freq_bsy = {}
+        freqs = []
+        for i in range(0, VMM.N_FREQ):
+            freqs.append({})
         for (ind, line) in enumerate(res[ind + 2: ind + 2 + VMM.H_CORE]):
             aline = line.split()
-            freq_rea[int(aline[2])] = float(aline[3])
-            freq_bsy[int(aline[2])] = float(aline[5])
-        return [freq_rea, freq_bsy]
+            freqs[0][int(aline[2])] = float(aline[3]) #avg_freq
+            freqs[1][int(aline[2])] = float(aline[5]) #bzy_freq
+        return freqs
 
-    def get_avg(self, freqs, num):
-        freq_sum = {}
+    def get_avg(self, mets, num):
+        met_sum = {}
         for i in range(0, VMM.Q_CORE):
-            freq_sum[i] = 0
-            freq_sum[i + VMM.H_CORE] = 0
-        for freq in freqs:
+            met_sum[i] = 0
+            met_sum[i + VMM.H_CORE] = 0
+        for met in mets:
             for i in range(0, VMM.Q_CORE):
-                freq_sum[i] += freq[i];
-                freq_sum[i + VMM.H_CORE] += freq[i + VMM.H_CORE];
+                met_sum[i] += met[i];
+                met_sum[i + VMM.H_CORE] += met[i + VMM.H_CORE];
         for i in range(0, int(self.N_CORE / 4)):
-            freq_sum[i] /= num
-            freq_sum[i + VMM.H_CORE] /= num
-        return freq_sum
+            met_sum[i] /= num
+            met_sum[i + VMM.H_CORE] /= num
+        return met_sum
 
-    def get_ipcs():
-        ipcs = []
-        for i in range(0, num):
-            ipc = self.get_ipc()
-            ipcs.append(ipc)
-        avg_ipc = self.get_avg(ipcs, num)
-        return avg_ipc
-
-    def get_freqs(self, num):
-        freqs_rea = []
-        freqs_bsy = []
+    def get_metrics(self, num):
+        mets = []
+        avg_mets = []
+        N_METRICS = VMM.N_FREQ + VMM.N_RDT
+        for i in range(0, N_METRICS):
+            mets.append([])
         for i in range(0, num):
             freq = self.get_freq()
-            freqs_rea.append(freq[0])
-            freqs_bsy.append(freq[1])
-        avg_freq_rea = self.get_avg(freqs_rea, num)
-        avg_freq_bsy = self.get_avg(freqs_bsy, num)
-        return [avg_freq_rea, avg_freq_bsy]
+            rdt = self.get_rdt()
+            mets[0].append(freq[0])
+            mets[1].append(freq[1])
+            mets[2].append(rdt[0])
+            mets[3].append(rdt[1])
+            mets[4].append(rdt[2])
+            mets[5].append(rdt[3])
+            mets[6].append(rdt[4])
+        for met in mets:
+            avg_mets.append(self.get_avg(met, num))
+        return avg_mets
 
-    def get_freqs_ipcs(self, num):
-        freqs_rea = []
-        freqs_bsy = []
-        ipcs = []
-        for i in range(0, num):
-            freq = self.get_freq()
-            ipc = self.get_ipc()
-            freqs_rea.append(freq[0])
-            freqs_bsy.append(freq[1])
-            ipcs.append(ipc)
-        avg_freq_rea = self.get_avg(freqs_rea, num)
-        avg_freq_bsy = self.get_avg(freqs_bsy, num)
-        avg_ipc = self.get_avg(ipcs, num)
-        return [avg_freq_rea, avg_freq_bsy, avg_ipc]
-
-    def vm_ipc(self, vm_id, ipc):
+    def vm_met(self, vm_id, met):
         vm = self.vms[vm_id]
         num_cores = vm.num_cores
-        ipc_total = 0
+        met_total = 0
         for id_core in range(0, num_cores):
-            ipc_total += ipc[self.maps_vm_core[(vm_id, id_core)]]
-        ipc_avg = ipc_total / num_cores
-        return ipc_avg
+            met_total += met[self.maps_vm_core[(vm_id, id_core)]]
+        met_avg = met_total / num_cores
+        return met_avg
 
-    def vm_freq(self, vm_id, freq):
-        vm = self.vms[vm_id]
-        num_cores = vm.num_cores
-        freq_total = 0
-        for id_core in range(0, num_cores):
-            freq_total += freq[self.maps_vm_core[(vm_id, id_core)]]
-        freq_avg = freq_total / num_cores
-        return freq_avg
-
-    def vm_ipc2(self, vm_id, num):
-        ipc = self.get_ipcs(num)
-        print('ipc:', ipc)
-        ipc_vm = self.vm_ipc(vm_id, ipc)
-        self.vms[vm_id].print('ipc_vm: ', ipc_vm)
-        return ipc_vm
-
-    def vm_freq2(self, vm_id, num):
-        freq = self.get_freqs(num)
-        self.vms[vm_id].print('freq:', freq)
-        freq_rea_vm = self.vm_freq(vm_id, freq[0])
-        freq_bsy_vm = self.vm_freq(vm_id, freq[1])
-        self.vms[vm_id].print('freq_vm: ', freq_rea_vm, freq_bsy_vm)
-        return [freq_rea_vm, freq_bsy_vm]
-
-    def vm_freq_ipc2(self, vm_id, num_sample, res):
+    def vm_metrics(self, vm_id, num_sample, res):
         print('vm_id = ', vm_id)
         self.vms[vm_id].print('freq_rea, frea_bsy and ipc:', res)
-        freq_rea_vm = self.vm_freq(vm_id, res[0])
-        freq_bsy_vm = self.vm_freq(vm_id, res[1])
-        ipc_vm = self.vm_ipc(vm_id, res[2])
-        self.vms[vm_id].print('freq_rea_vm, freq_bsy_vm and ipc_vm is: ', freq_rea_vm, freq_bsy_vm, ipc_vm)
-        return [freq_rea_vm, freq_bsy_vm, ipc_vm]
+        met_vm = []
+        for r in res:
+            met_vm.append(self.vm_met(vm_id, r))
+        self.vms[vm_id].print('freq_rea_vm, freq_bsy_vm and ipc_vm is: ', met_vm[0], met_vm[1], met_vm[2])
+        return met_vm
 
     def param_bench_id(self, vm_id):
         if vm_id == 0:
@@ -360,7 +345,7 @@ class VMM:
 
     def end_event(self, num_cores, begin_core):
         if self.mode == 'num_cores':
-            return (self.num_vms == 1 and num_cores == VMM.H_CORE) or (self.num_vms == 2 and num_cores == VMM.H_CORE - 4)
+            return (self.num_vms == 1 and num_cores == 8) or (self.num_vms == 2 and num_cores == VMM.H_CORE - 4)
         elif self.mode == 'begin_core':
             return begin_core == num_cores
 
@@ -384,7 +369,7 @@ class VMM:
         time.sleep(1)
         self.record = [[]] * len(self.params)
         num_sample = 6
-        res = self.get_freqs_ipcs(num_sample)
+        res = self.get_metrics(num_sample)
         for [vm_id, bench_id, num_cores, begin_core, data] in self.params:
             self.record[vm_id] = []
             vm = self.vms[vm_id]
@@ -393,11 +378,10 @@ class VMM:
             self.record[vm_id].append(self.benchs[bench_id])
             self.record[vm_id].append(begin_core)
             self.record[vm_id].append(vm.num_cores)
-            res_vm = self.vm_freq_ipc2(vm_id, num_sample, res)
-            self.record[vm_id].append(res_vm[0])
-            self.record[vm_id].append(res_vm[1])
-            self.record[vm_id].append(res_vm[2])
-        #vm_id, bench_id, bench_name, begin_core, num_cores, avg_freq, freq_rea, freq_avg, ipc, time
+            res_vm = self.vm_metrics(vm_id, num_sample, res)
+            for r_vm in res_vm:
+                self.record[vm_id].append(r_vm)
+        #vm_id, bench_id, bench_name, begin_core, num_cores, avg_freq, freq_rea, freq_avg, ipc, miss, LLC, MBL, MBR, time
 
     def postprocess(self):
         data_dir = 'records'
@@ -537,6 +521,41 @@ class SST:
             cmd = '%s core-power --cpu %d assoc --clot 3' % (prog, ind)
             exec_cmd(cmd)
 
+class RDT:
+    def __init__(self):
+        pass
+
+    def set_llc(self, vmm, vm_id, way_beg, way_end):
+        core_list = []
+        for core_id in range(0, vmm.vms[vm_id].num_cores):
+            core_list.append(str(vmm.maps_vm_core[(vm_id, core_id)]))
+        core_list = ",".join(core_list)
+        llc_ways = 0x0
+        for way_id in range(way_beg, way_end + 1):
+            llc_ways |= (1 << way_id)
+        cmd1 = 'pqos-msr -e "llc:%d=0x%x"' % (vm_id + 1, llc_ways)
+        cmd2 = 'pqos-msr -a "cos:%d=%s"' % (vm_id + 1, core_list)
+        exec_cmd(cmd1)
+        exec_cmd(cmd2)
+
+    def set_mb(self, vmm, vm_id, mba_perc):
+        core_list = []
+        for core_id in range(0, vmm.vms[vm_id].num_cores):
+            core_list.append(vmm.maps_vm_core[(vm_id, core_id)])
+        cmd1 = 'pqos-msr -e "mba:%d=%d"' % (vm_id + 1, mba_perc)
+        cmd2 = 'pqos-msr -a "cos:%d=%s"' % (vm_id + 1, core_list)
+        exec_cmd(cmd1)
+        exec_cmd(cmd2)
+
+    def reset(self):
+        cmd = 'pqos-msr -R'
+        exec_cmd(cmd)
+
+    def show(self):
+        cmd = 'pqos-msr -s'
+        exec_cmd(cmd)
+        print(get_res())
+
 class Exp:
     vm_id = 0
     bench_id = 0
@@ -596,8 +615,8 @@ if __name__ == "__main__":
         vm_id = 0
         vmm.set_cores(vm_id, VMM.H_CORE)
         vmm.set_mem(vm_id, 16)
-        res = vmm.get_freqs_ipcs(num)
-        vmm.vm_freq_ipc2(vm_id, 6, res)
+        res = vmm.get_metrics(num)
+        vmm.vm_metrics(vm_id, 6, res)
     elif param == 'read':
         #data_dir = 'records_20211123_one_vm_perf_thread'
         data_dir = 'records'
@@ -725,9 +744,16 @@ if __name__ == "__main__":
         sst = SST()
         #sst.test()
         sst.tf(4) #num is the number of physical cores
+    elif param == 'rdt':
+        rdt = RDT()
+        num_cores = 8
+        vmm.set_cores(0, num_cores)
+        rdt.set_llc(vmm, 0, 1, 3)
+        rdt.set_mb(vmm, 0, 30)
+        #rdt.show()
     elif param == 'clean':
-        sst = SST()
-        sst.tf_close()
+        rdt = RDT()
+        rdt.reset()
     elif param == 'ssh':
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
