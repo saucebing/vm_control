@@ -72,7 +72,7 @@ def run_parsec(task):
     os.chdir(cur_path)
     return t_avg
 
-def run_parsec_parallel(task, num):
+def run_parsec_parallel(task, n_proc):
     ws = '/root/parsec-3.0'
     cur_path = os.getcwd()
     os.chdir('%s' % ws)
@@ -80,8 +80,8 @@ def run_parsec_parallel(task, num):
     nums = 1
     for i in range(0, nums): # nums times same tasks
         cmd = './run.sh %s' % task
-        parallel_cmd(cmd, num)
-        for j in range(0, num):
+        parallel_cmd(cmd, n_proc)
+        for j in range(0, n_proc):
             res = get_res(j)
             (m, s) = find_str2('real(.*)m(.*)s', res)
             print('Thread %d: %sm %ss' % (j, m, s))
@@ -89,7 +89,29 @@ def run_parsec_parallel(task, num):
             s = s.strip()
             t = float(m) * 60 + float(s)
             t_total += t
-        t_total /= num
+        t_total /= n_proc
+    t_avg = t_total / nums
+    os.chdir(cur_path)
+    return t_avg
+
+def run_NPB_parallel(task_name, n_thread, n_proc):
+    ws = '/root/NPB3.4.2/NPB3.4-MPI'
+    cur_path = os.getcwd()
+    os.chdir('%s' % ws)
+    t_total = 0
+    nums = 1
+    for i in range(0, nums): # nums times same tasks
+        cmd = 'time mpirun --allow-run-as-root -np %d bin/%s.B.x' % (n_thread, task_name)
+        parallel_cmd(cmd, n_proc)
+        for j in range(0, n_proc):
+            res = get_res(j)
+            (m, s) = find_str2('real(.*)m(.*)s', res)
+            print('Thread %d: %sm %ss' % (j, m, s))
+            m = m.strip()
+            s = s.strip()
+            t = float(m) * 60 + float(s)
+            t_total += t
+        t_total /= n_proc
     t_avg = t_total / nums
     os.chdir(cur_path)
     return t_avg
@@ -101,7 +123,8 @@ def decode(data):
 
 param = sys.argv[1]
 if param == 'test':
-    run_parsec_parallel('4 parsec.ferret', 18)
+    #run_parsec_parallel('4 parsec.ferret', 18)
+    run_NPB_parallel('ft', 4, 1)
 elif param == 'run':
     debug = True
     port = int(sys.argv[2])
@@ -122,18 +145,25 @@ elif param == 'run':
                 (n_cores, task_name) = find_str2('([0-9]+)(.*)', data)
                 n_cores = n_cores.strip()
                 task_name = task_name.strip()
-                if 'ocean_ncp' in task_name:    #special deal
-                    num_threads = 4
-                    tasks_per_thread = int(int(n_cores) / num_threads)
-                    task = '%d %s' % (tasks_per_thread, task_name)
-                else:
-                    task = '4 %s' % task_name
-                    num_threads = int(int(n_cores) / 4)
-                #avg_perf = run_parsec(task)
-                os.system('rm -rf /root/parsec-3.0/result/*')
-                avg_perf = run_parsec_parallel(task, num_threads)
-                print(avg_perf, 's')
-                server.send('res:%f' % avg_perf)
+                if 'splash2x' in task_name or 'parsec' in task_name:
+                    if 'ocean_ncp' in task_name:    #special deal
+                        num_threads = 4
+                        tasks_per_thread = int(int(n_cores) / num_threads)
+                        task = '%d %s' % (tasks_per_thread, task_name)
+                    else:
+                        task = '4 %s' % task_name
+                        num_threads = int(int(n_cores) / 4)
+                    #avg_perf = run_parsec(task)
+                    os.system('rm -rf /root/parsec-3.0/result/*')
+                    avg_perf = run_parsec_parallel(task, num_threads)
+                    print(avg_perf, 's')
+                    server.send('res:%f' % avg_perf)
+                elif 'NPB' in task_name:
+                    task_name = task_name[4:].lower()
+                    num_threads = int(n_cores)
+                    avg_perf = run_NPB_parallel(task_name, num_threads, 1)
+                    print(avg_perf, 's')
+                    server.send('res:%f' % avg_perf)
         server.client_close()
         server.server_close()
     except KeyboardInterrupt:
