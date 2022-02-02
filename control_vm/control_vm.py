@@ -59,7 +59,7 @@ def get_res(index = 0):
     global out_temp, fileno
     return b2s(out_temp[index].read())
 
-class VM:
+class VMmigrate :
     vm_name = ''
     vm_id = 0
     num_cores = 0
@@ -162,7 +162,9 @@ class VMM:
     num_vms = 0
     record = []
     records = []
-    benchs = ['splash2x.raytrace']
+    #benchs = ['splash2x.water_nsquared', 'splash2x.water_spatial', 'splash2x.raytrace', 'splash2x.ocean_cp', 'splash2x.ocean_ncp', 'splash2x.fmm', 'parsec.swaptions']
+    benchs = ['NPB.CG', 'NPB.FT', 'NPB.SP', 'NPB.EP']
+    #benchs = ['splash2x.raytrace']
     #benchs = ['splash2x.raytrace', 'splash2x.ocean_ncp', 'splash2x.barnes', 'splash2x.lu_cb', 'splash2x.radiosity', 'splash2x.water_spatial', 'parsec.fluidanimate', 'parsec.freqmine', 'parsec.ferret', 'parsec.blackscholes']
     #benchs = ['splash2x.raytrace', 'splash2x.ocean_ncp', 'splash2x.water_spatial']
 
@@ -210,17 +212,6 @@ class VMM:
                 self.maps_vm_core[(vm_id, local_core_id)] = global_core_id + VMM.H_CORE
                 local_core_id += 1
                 VMM.visited[global_core_id + VMM.H_CORE] = True
-        #cores = range(0, num_cores)
-        #for i in cores:
-        #    for j in (list(range(begin_core, VMM.H_CORE)) + list(range(0, begin_core))):
-        #      if j % 2 == 0 and not VMM.visited[int(j / 2)]:
-        #          self.maps_vm_core[(vm_id, i)] = int(j / 2)
-        #          VMM.visited[int(j / 2)] = True
-        #          break
-        #      elif j % 2 == 1 and not VMM.visited[int(j / 2) + VMM.H_CORE]:
-        #          self.maps_vm_core[(vm_id, i)] = int(j / 2) + VMM.H_CORE
-        #          VMM.visited[int(j / 2) + VMM.H_CORE] = True
-        #          break
         print('maps_vm_core:', self.maps_vm_core)
         vm = self.vms[vm_id]
         vm.setvcpus_dyn(num_cores)
@@ -236,6 +227,7 @@ class VMM:
         ind = 0
         while not 'CORE' in res[ind]:
             ind += 1
+        ind += 1
         while not 'CORE' in res[ind]:
             ind += 1
         rdts = []
@@ -360,7 +352,7 @@ class VMM:
         self.mode = mode #num_cores, begin_core
 
     def preprocess(self):
-        time.sleep(1)
+        time.sleep(0.5)
         for [vm_id, bench_id, num_cores, begin_core, data] in self.params:
             self.bench_id = bench_id
             vm = self.vms[vm_id]
@@ -368,7 +360,7 @@ class VMM:
             vm.client.send('tasks:%d %s' % (vm.num_cores, self.benchs[self.bench_id]))
         time.sleep(1)
         self.record = [[]] * len(self.params)
-        num_sample = 6
+        num_sample = 3
         res = self.get_metrics(num_sample)
         for [vm_id, bench_id, num_cores, begin_core, data] in self.params:
             self.record[vm_id] = []
