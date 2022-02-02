@@ -50,7 +50,7 @@ def find_str(pattern, string):
     return pat.findall(string)[0]
 
 def split_str(string):
-    return filter(lambda x:x, string.split())
+    return list(filter(lambda x:x, string.split()))
 
 def b2s(s):
     return str(s, encoding = 'utf-8')
@@ -59,7 +59,7 @@ def get_res(index = 0):
     global out_temp, fileno
     return b2s(out_temp[index].read())
 
-class VMmigrate :
+class VM:
     vm_name = ''
     vm_id = 0
     num_cores = 0
@@ -72,7 +72,7 @@ class VMmigrate :
         self.vm_id = vm_id
         self.vm_name = vm_name
         self.client = client.CLIENT()
-        #state = self.get_state()
+        state = self.get_state()
         #self.print(self.state)
 
     def print(self, *argc, **kwargs):
@@ -135,8 +135,39 @@ class VMmigrate :
         cmd = 'virsh resume %s' % self.vm_name
         exec_cmd(cmd, vm_id = self.vm_id)
 
+    def get_pid(self):
+        cmd = 'ps aux | grep kvm'
+        exec_cmd(cmd, vm_id = self.vm_id)
+        lines = get_res().split('\n')
+        pid = 0
+        for i in range(0, self.num_cores):
+            spids.append([])
+        for line in lines:
+            if self.vm_name in line:
+                pid = int(split_str(line)[1])
+                break
+        return pid
+
+    def get_spid(self):
+        pid = self.get_pid()
+        spids = []
+        cmd = 'ps -T -p %d' % pid
+        exec_cmd(cmd, vm_id = self.vm_id)
+        lines = get_res().split('\n')
+        for line in lines:
+            if 'CPU' in line and 'KVM' in line:
+                line2 = split_str(line)
+                vcpu_id = int(find_str('([0-9]+)/KVM', line2[5]))
+                spids[vcpu_id] = int(line2[1])
+        return spids
+
     def bind_core(self, vcpu, pcpu): #pcpu可以是0-143
         cmd = 'virsh vcpupin %s %s %s' % (self.vm_name, vcpu, pcpu)
+        exec_cmd(cmd, vm_id = self.vm_id)
+
+    def bind_mem(self): #pcpu可以是0-143
+        pid = self.get_pid()
+        cmd = 'migratepages %d all 0' % pid
         exec_cmd(cmd, vm_id = self.vm_id)
 
     def setvcpus_sta(self, n_vcpu): #set up when shutting down
@@ -218,6 +249,7 @@ class VMM:
         vm.num_cores = num_cores
         for i in range(0, num_cores):
             vm.bind_core(i, self.maps_vm_core[(vm.vm_id, i)])
+        vm.bind_mem()
 
     def get_rdt(self):
         exec_cmd('pqos-msr -t 1')
@@ -587,7 +619,18 @@ if __name__ == "__main__":
     for vm_id in range(0, num_vms):
         vm_name = 'centos8_test%d' % vm_id
         vmm.new_vm(vm_id, vm_name)
-    if param == 'core':
+    if param == 'init':
+        for vm_id in range(0, num_vms):
+            vm = vmm.vms[vm_id]
+            vm.setvcpus_sta(VMM.H_CORE)
+            vm.setmem_sta(64)
+            vm.shutdown()
+            time.sleep(10)
+            vm.start()
+            time.sleep(10)
+            vm.setvcpus_dyn(1)
+            vm.setmem_dyn(16)
+    elif param == 'core':
         for vm_id in range(0, num_vms):
             num_cores = 4
             vmm.set_cores(vm_id, num_cores)
@@ -746,6 +789,10 @@ if __name__ == "__main__":
     elif param == 'clean':
         rdt = RDT()
         rdt.reset()
+    elif param == 'spid':
+        #print(vmm.vms[0].get_spid())
+        num_cores = 8
+        vmm.set_cores(0, num_cores)
     elif param == 'ssh':
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
