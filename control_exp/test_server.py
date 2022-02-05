@@ -41,7 +41,7 @@ def find_str(pattern, string):
 
 def find_str2(pattern, string):
     pat = re.compile(pattern)
-    return pat.findall(string)[0]
+    return pat.findall(string)[-1]
 
 def split_str(string):
     return filter(lambda x:x, string.split())
@@ -52,11 +52,11 @@ def b2s(s):
 def get_res(ind = 0):
     return b2s(out_temp[ind].read())
 
-def run_parsec(task):
+def run_parsec(task, scale, times):
     ws = '/root/parsec-3.0'
     cur_path = os.getcwd()
     os.chdir('%s' % ws)
-    cmd = './run.sh %s' % task
+    cmd = 'time ./run.sh %s %s %s' % (task, scale, times)
     t_total = 0
     nums = 1
     for i in range(0, nums):
@@ -72,17 +72,18 @@ def run_parsec(task):
     os.chdir(cur_path)
     return t_avg
 
-def run_parsec_parallel(task, n_proc):
+def run_parsec_parallel(task, scale, times, n_proc):
     ws = '/root/parsec-3.0'
     cur_path = os.getcwd()
     os.chdir('%s' % ws)
     t_total = 0
     nums = 1
     for i in range(0, nums): # nums times same tasks
-        cmd = './run.sh %s' % task
+        cmd = 'time ./run.sh %s %s %s' % (task, scale, times)
         parallel_cmd(cmd, n_proc)
         for j in range(0, n_proc):
             res = get_res(j)
+            #print(res)
             (m, s) = find_str2('real(.*)m(.*)s', res)
             print('Thread %d: %sm %ss' % (j, m, s))
             m = m.strip()
@@ -122,9 +123,18 @@ def decode(data):
     return res[0]
 
 param = sys.argv[1]
+#parsec_scale = 'simlarge'
+#parsec_times = 10
+parsec_scale = 'native'
+parsec_times = 1
 if param == 'test':
-    #run_parsec_parallel('4 parsec.ferret', 18)
-    run_NPB_parallel('ft', 4, 1)
+    #benchs = ['splash2x.water_nsquared', 'splash2x.water_spatial', 'splash2x.raytrace', 'splash2x.ocean_cp', 'splash2x.ocean_ncp', 'splash2x.fmm', 'parsec.swaptions']
+    benchs = ['parsec.blackscholes', 'parsec.canneal', 'parsec.fluidanimate', 'parsec.freqmine', 'parsec.streamcluster', 'parsec.vips']
+    #run_parsec_parallel('4 parsec.ferret', parsec_scale, parsec_times, 18)
+    #run_NPB_parallel('ft', 4, 1)
+    #run_parsec_parallel('4 splash2x.water_nsquared', parsec_scale, parsec_times, 1)
+    for bench_id in range(6, len(benchs)):
+        run_parsec_parallel('4 %s' % benchs[bench_id], parsec_scale, parsec_times, 1)
 elif param == 'run':
     debug = True
     port = int(sys.argv[2])
@@ -146,16 +156,18 @@ elif param == 'run':
                 n_cores = n_cores.strip()
                 task_name = task_name.strip()
                 if 'splash2x' in task_name or 'parsec' in task_name:
-                    if 'ocean_ncp' in task_name:    #special deal
-                        num_threads = 4
-                        tasks_per_thread = int(int(n_cores) / num_threads)
-                        task = '%d %s' % (tasks_per_thread, task_name)
-                    else:
-                        task = '4 %s' % task_name
-                        num_threads = int(int(n_cores) / 4)
-                    #avg_perf = run_parsec(task)
+                    #if 'ocean_ncp' in task_name:    #special deal
+                    #    num_threads = 4
+                    #    tasks_per_thread = int(int(n_cores) / num_threads)
+                    #    task = '%d %s' % (tasks_per_thread, task_name)
+                    #else:
+                    #    task = '4 %s' % task_name
+                    #    num_threads = int(int(n_cores) / 4)
+                    task = '4 %s' % task_name
+                    num_threads = int(int(n_cores) / 4)
+                    #avg_perf = run_parsec(task, parsec_scale)
                     os.system('rm -rf /root/parsec-3.0/result/*')
-                    avg_perf = run_parsec_parallel(task, num_threads)
+                    avg_perf = run_parsec_parallel(task, parsec_scale, parsec_times, num_threads)
                     print(avg_perf, 's')
                     server.send('res:%f' % avg_perf)
                 elif 'NPB' in task_name:
