@@ -59,6 +59,47 @@ def get_res(index = 0):
     global out_temp, fileno
     return b2s(out_temp[index].read())
 
+class color:
+    black = '\033[0;30m'
+    red = '\033[0;31m'
+    green = '\033[0;32m'
+    yellow = '\033[0;33m'
+    blue = '\033[0;34m'
+    purple = '\033[0;35m'
+    dark_green = '\033[0;36m'
+    white = '\033[0;37m'
+    grey = '\033[90m'
+    l_red = '\033[91m' #fail
+    l_green = '\033[92m'
+    l_yellow = '\033[93m' #warn
+    l_blue = '\033[94m' #blue
+    l_purple = '\033[95m'
+    l_dark_green = '\033[96m'
+    end = '\033[0m'
+    bold = '\033[1m'
+    underline = '\033[4m'
+
+    b_black = '\033[0;40m'
+    b_read = '\033[0;41m'
+    b_green = '\033[0;42m'
+    b_yellow = '\033[0;43m'
+    b_blue = '\033[0;44m'
+    b_purple = '\033[0;45m'
+    b_dark_green = '\033[0;46m'
+    b_white = '\033[0;47m'
+    b_grey = '\033[100m'
+    b_l_red = '\033[101m' #fail
+    b_l_green = '\033[102m'
+    b_l_yellow = '\033[103m' #warn
+    b_l_blue = '\033[104m' #blue
+    b_l_purple = '\033[105m'
+    b_l_dark_green = '\033[106m'
+
+    beg1 = green + bold
+    beg2 = blue + bold
+    beg3 = green + bold
+    beg4 = blue + bold
+
 class VM:
     vm_name = ''
     vm_id = 0
@@ -416,7 +457,7 @@ class VMM:
                 rdt.set_mb(self, 0, vm.memb)
 
             vm.client.send('tasks:%d %s' % (vm.num_cores, self.benchs[self.bench_id]))
-        time.sleep(2)
+        time.sleep(0.5)
         self.record = [[]] * len(self.params)
         num_sample = 5
         res = self.get_metrics(num_sample)
@@ -720,13 +761,17 @@ if __name__ == "__main__":
         vmm.vm_metrics(vm_id, 6, res)
     elif param == 'read':
         #data_dir = 'records_20211123_one_vm_perf_thread'
-        data_dir = 'records'
+        data_dir = ''
+        if len(sys.argv) >= 3:
+            data_dir = sys.argv[2]
+        else:
+            data_dir = 'records'
         for bench_id in range(0, len(vmm.benchs)):
             for vm_id in range(0, num_vms):
-                vmm.read_records(data_dir, vm_id, bench_id + 11)
+                vmm.read_records(data_dir, vm_id, bench_id)
     elif param == 'draw':
         #data_dir = 'records_20211123_one_vm_perf_thread'
-        data_dir = 'records_llc'
+        data_dir = 'records_llc_04cores'
         [num_benchs, num_exps, num_vms, vms_exps_benchs] = vmm.pre_draw(data_dir, vmm.benchs)
         num_figs = 2
         xlabels = ['LLC ways', 'LLC ways']
@@ -748,6 +793,12 @@ if __name__ == "__main__":
                     ipc.append(ele.ipc)
                     llc_ways.append(ele.llc_ways_end)
                     runtime.append(ele.runtime)
+                    if id_exp == num_exps - 1:
+                        ratio = (runtime[0] - runtime[id_exp]) / runtime[0] * 100
+                        if ratio > 15:
+                            print('cbw llc %s%s%s runtime[%d]: %f %f, %f%%' % (color.beg1, ele.bench_name, color.end, id_exp, runtime[0], runtime[id_exp], ratio))
+                        else:
+                            print('cbw no-llc %s%s%s runtime[%d]: %f %f, %f%%' % (color.beg2, ele.bench_name, color.end, id_exp, runtime[0], runtime[id_exp], ratio))
                     ele.print()
             #axs[0].plot(num_cores, bzy_freq, label = vms_exps_benchs[id_bench][0][0].bench_name)
             #axs[1].plot(num_cores, runtime, label = vms_exps_benchs[id_bench][0][0].bench_name)
@@ -756,7 +807,7 @@ if __name__ == "__main__":
             axs[1].plot(llc_ways, runtime, label = vms_exps_benchs[id_bench][0][0].bench_name)
             vmm.post_draw(num_figs, figs, axs)
 
-        data_dir = 'records_memb'
+        data_dir = 'records_memb_04cores'
         [num_benchs, num_exps, num_vms, vms_exps_benchs] = vmm.pre_draw(data_dir, vmm.benchs)
         num_figs = 2
         xlabels = ['Memory Bandwidth(%)', 'Memory Bandwidth(%)']
@@ -778,6 +829,12 @@ if __name__ == "__main__":
                     ipc.append(ele.ipc)
                     memb.append(ele.memb)
                     runtime.append(ele.runtime)
+                    if id_exp == num_exps - 1:
+                        ratio = (runtime[0] - runtime[id_exp]) / runtime[0] * 100
+                        if ratio > 15:
+                            print('cbw memb %s%s%s runtime[%d]: %f %f, %f%%' % (color.beg3, ele.bench_name, color.end, id_exp, runtime[0], runtime[id_exp], ratio))
+                        else:
+                            print('cbw no-memb %s%s%s runtime[%d]: %f %f, %f%%' % (color.beg4, ele.bench_name, color.end, id_exp, runtime[0], runtime[id_exp], ratio))
                     ele.print()
             #axs[0].plot(num_cores, bzy_freq, label = vms_exps_benchs[id_bench][0][0].bench_name)
             #axs[1].plot(num_cores, runtime, label = vms_exps_benchs[id_bench][0][0].bench_name)
@@ -805,8 +862,8 @@ if __name__ == "__main__":
         begin_core = 0
         #vmm.init_mode('begin_core')
         #vmm.init_mode('num_cores')
-        vmm.init_mode('llc')
-        #vmm.init_mode('memb')
+        #vmm.init_mode('llc')
+        vmm.init_mode('memb')
         while True:
             for vm_id in range(0, num_vms):
                 (cmd[vm_id], data[vm_id]) = decode(vmm.vms[vm_id].recv())
@@ -816,12 +873,12 @@ if __name__ == "__main__":
                 elif vmm.mode == 'begin_core':
                     num_cores = 64
                 elif vmm.mode == 'llc':
-                    num_cores = 4
+                    num_cores = 16
                     vmm.vms[0].llc_ways_end = 0
                     vmm.vms[0].llc_ways_end = 1
                     vmm.vms[0].memb = 100
                 elif vmm.mode == 'memb':
-                    num_cores = 4
+                    num_cores = 16
                     vmm.vms[0].llc_ways_end = 0
                     vmm.vms[0].llc_ways_end = 11
                     vmm.vms[0].memb = 10
