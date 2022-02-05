@@ -68,11 +68,19 @@ class VM:
     client = None
     port = 0
 
+    llc_ways_beg = 0
+    llc_ways_end = 11
+    memb = 100
+
     def __init__(self, vm_id, vm_name):
         self.vm_id = vm_id
         self.vm_name = vm_name
         self.client = client.CLIENT()
         state = self.get_state()
+
+        self.llc_ways_beg = 0
+        self.llc_ways_end = 11
+        self.memb = 100
         #self.print(self.state)
 
     def print(self, *argc, **kwargs):
@@ -140,8 +148,6 @@ class VM:
         exec_cmd(cmd, vm_id = self.vm_id)
         lines = get_res().split('\n')
         pid = 0
-        for i in range(0, self.num_cores):
-            spids.append([])
         for line in lines:
             if self.vm_name in line:
                 pid = int(split_str(line)[1])
@@ -151,6 +157,8 @@ class VM:
     def get_spid(self):
         pid = self.get_pid()
         spids = []
+        for i in range(0, self.num_cores):
+            spids.append([])
         cmd = 'ps -T -p %d' % pid
         exec_cmd(cmd, vm_id = self.vm_id)
         lines = get_res().split('\n')
@@ -193,8 +201,12 @@ class VMM:
     num_vms = 0
     record = []
     records = []
+    benchs = ['splash2x.water_nsquared', 'splash2x.water_spatial', 'splash2x.raytrace', 'splash2x.ocean_cp', 'NPB.CG', 'NPB.FT', 'NPB.SP', 'splash2x.ocean_ncp', 'splash2x.fmm', 'parsec.swaptions', 'NPB.EP', 'parsec.canneal', 'parsec.freqmine']
     #benchs = ['splash2x.water_nsquared', 'splash2x.water_spatial', 'splash2x.raytrace', 'splash2x.ocean_cp', 'splash2x.ocean_ncp', 'splash2x.fmm', 'parsec.swaptions']
-    benchs = ['NPB.CG', 'NPB.FT', 'NPB.SP', 'NPB.EP']
+    #benchs = ['splash2x.water_nsquared', 'splash2x.water_spatial', 'splash2x.raytrace', 'splash2x.ocean_cp', 'splash2x.ocean_ncp', 'splash2x.fmm', 'parsec.swaptions']
+    #benchs = ['parsec.canneal', 'parsec.freqmine']
+    #benchs = ['NPB.CG', 'NPB.FT', 'NPB.SP', 'NPB.EP']
+    #benchs = ['splash2x.water_nsquared', 'splash2x.water_spatial', 'splash2x.raytrace', 'splash2x.ocean_cp', 'NPB.CG', 'NPB.FT', 'NPB.SP', 'splash2x.ocean_ncp', 'splash2x.fmm', 'parsec.swaptions', 'NPB.EP']
     #benchs = ['splash2x.raytrace']
     #benchs = ['splash2x.raytrace', 'splash2x.ocean_ncp', 'splash2x.barnes', 'splash2x.lu_cb', 'splash2x.radiosity', 'splash2x.water_spatial', 'parsec.fluidanimate', 'parsec.freqmine', 'parsec.ferret', 'parsec.blackscholes']
     #benchs = ['splash2x.raytrace', 'splash2x.ocean_ncp', 'splash2x.water_spatial']
@@ -356,7 +368,7 @@ class VMM:
         if vm_id == 0:
             return num_cores
         elif vm_id == 1:
-            return VMM.H_CORE  - num_cores
+            return VMM.H_CORE - num_cores
 
     def param_begin_core(self, vm_id, begin_core):
         if self.mode == 'num_cores':
@@ -366,12 +378,20 @@ class VMM:
                 return begin_core
             elif vm_id == 1:
                 return 0
+        elif self.mode == 'llc':
+            return begin_core
+        elif self.mode == 'memb':
+            return begin_core
 
     def end_event(self, num_cores, begin_core):
         if self.mode == 'num_cores':
-            return (self.num_vms == 1 and num_cores == 8) or (self.num_vms == 2 and num_cores == VMM.H_CORE - 4)
+            return (self.num_vms == 1 and num_cores == VMM.H_CORE) or (self.num_vms == 2 and num_cores == VMM.H_CORE - 4)
         elif self.mode == 'begin_core':
             return begin_core == num_cores
+        elif self.mode == 'llc':
+            return vmm.vms[0].llc_ways_end == 11
+        elif self.mode == 'memb':
+            return vmm.vms[0].memb == 100
 
     def end_all(self):
         return self.run_index == len(self.benchs) - 1
@@ -389,10 +409,16 @@ class VMM:
             self.bench_id = bench_id
             vm = self.vms[vm_id]
             self.set_cores(vm_id, num_cores, begin_core)
+
+            rdt = RDT()
+            if self.mode == 'llc' or self.mode == 'memb':
+                rdt.set_llc(self, 0, vm.llc_ways_beg, vm.llc_ways_end)
+                rdt.set_mb(self, 0, vm.memb)
+
             vm.client.send('tasks:%d %s' % (vm.num_cores, self.benchs[self.bench_id]))
-        time.sleep(1)
+        time.sleep(2)
         self.record = [[]] * len(self.params)
-        num_sample = 3
+        num_sample = 5
         res = self.get_metrics(num_sample)
         for [vm_id, bench_id, num_cores, begin_core, data] in self.params:
             self.record[vm_id] = []
@@ -402,10 +428,13 @@ class VMM:
             self.record[vm_id].append(self.benchs[bench_id])
             self.record[vm_id].append(begin_core)
             self.record[vm_id].append(vm.num_cores)
+            self.record[vm_id].append(vm.llc_ways_beg)
+            self.record[vm_id].append(vm.llc_ways_end)
+            self.record[vm_id].append(vm.memb)
             res_vm = self.vm_metrics(vm_id, num_sample, res)
             for r_vm in res_vm:
                 self.record[vm_id].append(r_vm)
-        #vm_id, bench_id, bench_name, begin_core, num_cores, avg_freq, freq_rea, freq_avg, ipc, miss, LLC, MBL, MBR, time
+        #vm_id, bench_id, bench_name, begin_core, num_cores, llc_ways_beg, llc_ways_end, memb, freq_avg, freq_bzy, ipc, miss, LLC, MBL, MBR, time
 
     def postprocess(self):
         data_dir = 'records'
@@ -430,11 +459,6 @@ class VMM:
         self.maps_vm_core = bidict()
 
     def read_records(self, data_dir, vm_id, run_index, is_print = True):
-        #data_dir = 'records_20211123_one_vm_perf_thread'
-        #data_dir = 'records_20211111_two_vms_perf_thread'
-        #data_dir = 'records_20211110_one_vm_perf_thread'
-        #data_dir = 'records_20211115_two_vms_perf_thread'
-        #data_dir = 'records_20211123_one_vm_perf_thread'
         vm = self.vms[vm_id]
         files = os.listdir(data_dir)
         print('files=',files)
@@ -446,16 +470,19 @@ class VMM:
                 file_name = f
                 print(f)
                 break
-        #f = open('%s/%03d_%03d_%s.log' % (data_dir, vm_id, bench_id, self.benchs[bench_id]), 'rb')
         f = open('%s/%s' % (data_dir, file_name), 'rb')
+        #f2 = open('%s/%s' % ('records_llc_2', file_name), 'wb')
         records = pickle.load(f)
+        #for record1 in records:
+        #    for record2 in record1:
+        #        record2.insert(7, 100)
+        #        print(record2)
+        #pickle.dump(records, f2)
         f.close()
-        #vm.print('bench_id: %d, benchmark: %s, num_cores: %d\nrecords: ' % (bench_id, self.benchs[bench_id], vm.num_cores), records)
+        #f2.close()
         if is_print:
             vm.print('bench_id: %d, benchmark: %s, num_cores: %d\nrecords: ' % (bench_id, self.benchs[bench_id], vm.num_cores))
             vm.print(records)
-            #for record in records:
-            #    vm.print(record)
             vm.print('')
         return records
 
@@ -490,27 +517,41 @@ class VMM:
             axs.append(ax)
         return [figs, axs]
 
-    def post_draw(self, num_figs, axs):
+    def post_draw(self, num_figs, figs, axs):
+        figdir = 'figs'
         for f_id in range(0, num_figs):
-            axs[f_id].set_title('%s-%s' % (ylabels[f_id], xlabels[f_id]))
+            title = '%s-%s' % (ylabels[f_id], xlabels[f_id])
+            axs[f_id].set_title(title)
             if xaxis[f_id]:
                 axs[f_id].set_xticks(xaxis[f_id])
             axs[f_id].set_xlabel(xlabels[f_id])
             axs[f_id].set_ylabel(ylabels[f_id])
+            #axs[f_id].grid('on')
             #plt.legend(loc='lower left')
-            plt.legend(loc='best')
+            #axs[f_id].legend(loc='best')
+            #axs[f_id].legend(loc=2, bbox_to_anchor=(1.05,1.0), borderaxespad = 0.) 
+            axs[f_id].legend(loc=2, bbox_to_anchor=(1.0, 1.0))
+            #size = figs[f_id].get_size_inches()
+            #print(size)
+            width = 6.4
+            height = 4.8
+            figs[f_id].set_figwidth(width  * 1.3)
+            figs[f_id].tight_layout()
+            file_name = "%s/%s.eps" % (figdir, title)
+            #file_name = file_name.replace(' ', '_')
+            figs[f_id].savefig(file_name, bbox_inches='tight')
 
     def force_cmd(self, vm_id):
         vm = self.vms[vm_id]
         vm.get_ip()
-        port = random.randint(12345, 16000)
+        #port = random.randint(12345, 16000)
+        port = 12345
         vm.set_port(port)
-        cmd = 'ssh root@%s "pkill test_server"' % (vm.ip)
+        cmd = "ssh root@%s 'pkill test_server'" % (vm.ip)
         p = exec_cmd(cmd, vm_id = vm_id)
-        cmd = 'ssh root@%s "cd /root/control_exp && ./test_server.py run %d"' % (vm.ip, vm.port)
+        cmd = "ssh -t %s 'cd /root/vm_control/control_exp && ./test_server.py run %d' > %s.log" % (vm.ip, port, vm.vm_name)
         p = exec_cmd(cmd, 1, False, vm_id = vm_id)
-        time.sleep(1)
-        vm.print(get_res(vm_id))
+        #vm.print(get_res(vm_id))
 
 def decode(data):
     pat = re.compile('(.*):(.*)')
@@ -549,14 +590,18 @@ class RDT:
     def __init__(self):
         pass
 
+    def llc2bit(self, beg, end):
+        llc_ways = 0x0
+        for way_id in range(beg, end):
+            llc_ways |= (1 << way_id)
+        return llc_ways
+
     def set_llc(self, vmm, vm_id, way_beg, way_end):
         core_list = []
         for core_id in range(0, vmm.vms[vm_id].num_cores):
             core_list.append(str(vmm.maps_vm_core[(vm_id, core_id)]))
         core_list = ",".join(core_list)
-        llc_ways = 0x0
-        for way_id in range(way_beg, way_end + 1):
-            llc_ways |= (1 << way_id)
+        llc_ways = self.llc2bit(way_beg, way_end)
         cmd1 = 'pqos-msr -e "llc:%d=0x%x"' % (vm_id + 1, llc_ways)
         cmd2 = 'pqos-msr -a "cos:%d=%s"' % (vm_id + 1, core_list)
         exec_cmd(cmd1)
@@ -565,7 +610,8 @@ class RDT:
     def set_mb(self, vmm, vm_id, mba_perc):
         core_list = []
         for core_id in range(0, vmm.vms[vm_id].num_cores):
-            core_list.append(vmm.maps_vm_core[(vm_id, core_id)])
+            core_list.append(str(vmm.maps_vm_core[(vm_id, core_id)]))
+        core_list = ",".join(core_list)
         cmd1 = 'pqos-msr -e "mba:%d=%d"' % (vm_id + 1, mba_perc)
         cmd2 = 'pqos-msr -a "cos:%d=%s"' % (vm_id + 1, core_list)
         exec_cmd(cmd1)
@@ -586,9 +632,19 @@ class Exp:
     bench_name = ''
     begin_core = 0
     num_cores = 0
+
+    llc_ways_beg = 0
+    llc_ways_end = 0
+    memb = 0
+
     avg_freq = 0
     bzy_freq = 0
     ipc = 0
+    miss = 0
+    LLc = 0
+    MBL = 0
+    MBR = 0
+
     runtime = 0
     vmm = None
     data = []
@@ -599,10 +655,20 @@ class Exp:
         self.bench_name = data[2]
         self.begin_core = data[3]
         self.num_cores = data[4]
-        self.avg_freq = data[5]
-        self.bzy_freq = data[6]
-        self.ipc = data[7]
-        self.runtime = data[8]
+
+        self.llc_ways_beg = data[5]
+        self.llc_ways_end = data[6]
+        self.memb = data[7]
+
+        self.avg_freq = data[8]
+        self.bzy_freq = data[9]
+        self.ipc = data[10]
+        self.miss = data[11]
+        self.LLc = data[12]
+        self.MBL = data[13]
+        self.MBR = data[14]
+        self.runtime = data[15]
+
         self.vmm = vmm
         self.data = data
 
@@ -657,59 +723,70 @@ if __name__ == "__main__":
         data_dir = 'records'
         for bench_id in range(0, len(vmm.benchs)):
             for vm_id in range(0, num_vms):
-                vmm.read_records(data_dir, vm_id, bench_id)
+                vmm.read_records(data_dir, vm_id, bench_id + 11)
     elif param == 'draw':
         #data_dir = 'records_20211123_one_vm_perf_thread'
-        data_dir = 'records'
+        data_dir = 'records_llc'
         [num_benchs, num_exps, num_vms, vms_exps_benchs] = vmm.pre_draw(data_dir, vmm.benchs)
-        num_figs = 3
-        xlabels = ['Number of Threads', 'Number of Threads', 'Frequency(MHz)']
-        ylabels = ['Frequency(MHz)', 'Run Time(s)', 'Run Time(s)']
-        xaxis = [range(0, VMM.H_CORE + 4, 4), range(0, VMM.H_CORE + 4, 4), None]
+        num_figs = 2
+        xlabels = ['LLC ways', 'LLC ways']
+        ylabels = ['IPC', 'Run Time(s)']
+        xaxis = [range(0, 12, 1), range(0, 12, 1), None]
         [figs, axs] = vmm.pre_draw_2(num_figs)
 
         for id_bench in range(0, num_benchs):
             num_cores = []
             bzy_freq = []
             runtime = []
+            llc_ways = []
+            ipc = []
             for id_exp in range(0, num_exps):
                 for id_vm in range(0, 1):
                     ele = vms_exps_benchs[id_bench][id_exp][id_vm]
                     num_cores.append(ele.num_cores)
                     bzy_freq.append(ele.bzy_freq)
+                    ipc.append(ele.ipc)
+                    llc_ways.append(ele.llc_ways_end)
                     runtime.append(ele.runtime)
                     ele.print()
-            axs[0].plot(num_cores, bzy_freq, label = vms_exps_benchs[id_bench][0][0].bench_name)
-            axs[1].plot(num_cores, runtime, label = vms_exps_benchs[id_bench][0][0].bench_name)
-            axs[2].plot(bzy_freq, runtime, label = vms_exps_benchs[id_bench][0][0].bench_name)
+            #axs[0].plot(num_cores, bzy_freq, label = vms_exps_benchs[id_bench][0][0].bench_name)
+            #axs[1].plot(num_cores, runtime, label = vms_exps_benchs[id_bench][0][0].bench_name)
+            #axs[2].plot(bzy_freq, runtime, label = vms_exps_benchs[id_bench][0][0].bench_name)
+            axs[0].plot(llc_ways, ipc, label = vms_exps_benchs[id_bench][0][0].bench_name)
+            axs[1].plot(llc_ways, runtime, label = vms_exps_benchs[id_bench][0][0].bench_name)
+            vmm.post_draw(num_figs, figs, axs)
 
-        #vmm.post_draw(num_figs, axs)
+        data_dir = 'records_memb'
+        [num_benchs, num_exps, num_vms, vms_exps_benchs] = vmm.pre_draw(data_dir, vmm.benchs)
+        num_figs = 2
+        xlabels = ['Memory Bandwidth(%)', 'Memory Bandwidth(%)']
+        ylabels = ['IPC', 'Run Time(s)']
+        xaxis = [range(0, 110, 10), range(0, 110, 10), None]
+        [figs, axs] = vmm.pre_draw_2(num_figs)
 
-        #data_dir = 'records_20211123_two_vms_perf_thread'
-        #[num_benchs, num_exps, num_vms, vms_exps_benchs] = vmm.pre_draw(data_dir, [None] * 3)
-        #num_figs = 1
-        #xlabels = ['Number of Threads']
-        #ylabels = ['Frequency(MHz)']
-        #xaxis = [range(0, 80, 8)]
+        for id_bench in range(0, num_benchs):
+            num_cores = []
+            bzy_freq = []
+            runtime = []
+            memb = []
+            ipc = []
+            for id_exp in range(0, num_exps):
+                for id_vm in range(0, 1):
+                    ele = vms_exps_benchs[id_bench][id_exp][id_vm]
+                    num_cores.append(ele.num_cores)
+                    bzy_freq.append(ele.bzy_freq)
+                    ipc.append(ele.ipc)
+                    memb.append(ele.memb)
+                    runtime.append(ele.runtime)
+                    ele.print()
+            #axs[0].plot(num_cores, bzy_freq, label = vms_exps_benchs[id_bench][0][0].bench_name)
+            #axs[1].plot(num_cores, runtime, label = vms_exps_benchs[id_bench][0][0].bench_name)
+            #axs[2].plot(bzy_freq, runtime, label = vms_exps_benchs[id_bench][0][0].bench_name)
+            axs[0].plot(memb, ipc, label = vms_exps_benchs[id_bench][0][0].bench_name)
+            axs[1].plot(memb, runtime, label = vms_exps_benchs[id_bench][0][0].bench_name)
+            vmm.post_draw(num_figs, figs, axs)
 
-        #for id_bench_beg in range(0, 3):
-        #    [figs, axs] = vmm.pre_draw_2(num_figs)
-
-        #    for id_bench in range(id_bench_beg, id_bench_beg + 1):
-        #        num_cores = [[], []]
-        #        bzy_freq = [[], []]
-        #        runtime = [[], []]
-        #        for id_exp in range(0, num_exps):
-        #            for id_vm in range(0, 2):
-        #                ele = vms_exps_benchs[id_bench][id_exp][id_vm]
-        #                num_cores[id_vm].append(ele.num_cores)
-        #                bzy_freq[id_vm].append(ele.bzy_freq)
-        #                runtime[id_vm].append(ele.runtime)
-        #                #ele.print()
-        #        for id_vm in range(0, 2):
-        #            axs[0].plot(num_cores[id_vm], bzy_freq[id_vm], label = vms_exps_benchs[id_bench][0][id_vm].bench_name)
-        #    vmm.post_draw(num_figs, axs)
-        plt.show()
+        #plt.show()
 
     elif param == 'run':
         debug = True
@@ -718,7 +795,8 @@ if __name__ == "__main__":
             vmm.records[vm_id] = []
             if not debug:
                 vmm.force_cmd(vm_id)
-            vmm.vms[vm_id].set_port(12345)
+            else:
+                vmm.vms[vm_id].set_port(12345)
             vmm.vms[vm_id].connect()
 
         cmd = [None] * num_vms
@@ -726,7 +804,9 @@ if __name__ == "__main__":
         num_cores = 0 
         begin_core = 0
         #vmm.init_mode('begin_core')
-        vmm.init_mode('num_cores')
+        #vmm.init_mode('num_cores')
+        vmm.init_mode('llc')
+        #vmm.init_mode('memb')
         while True:
             for vm_id in range(0, num_vms):
                 (cmd[vm_id], data[vm_id]) = decode(vmm.vms[vm_id].recv())
@@ -735,6 +815,16 @@ if __name__ == "__main__":
                     num_cores = 4
                 elif vmm.mode == 'begin_core':
                     num_cores = 64
+                elif vmm.mode == 'llc':
+                    num_cores = 4
+                    vmm.vms[0].llc_ways_end = 0
+                    vmm.vms[0].llc_ways_end = 1
+                    vmm.vms[0].memb = 100
+                elif vmm.mode == 'memb':
+                    num_cores = 4
+                    vmm.vms[0].llc_ways_end = 0
+                    vmm.vms[0].llc_ways_end = 11
+                    vmm.vms[0].memb = 10
 
                 #sst = SST()
                 #if vmm.mode == 'num_cores':
@@ -754,13 +844,17 @@ if __name__ == "__main__":
                         for vm_id in range(0, num_vms):
                             vmm.vms[vm_id].send('end:0')
                     else:
-                        vmm.records = [[]] * num_vms
+                        vmm.records = []
                         for vm_id in range(0, num_vms):
-                            vmm.records[vm_id] = []
+                            vmm.records.append([])
                         if vmm.mode == 'num_cores':
                             num_cores = 4
                         elif vmm.mode == 'begin_core':
                             begin_core = 0
+                        elif vmm.mode == 'llc':
+                            vmm.vms[0].llc_ways_end = 1
+                        elif vmm.mode == 'memb':
+                            vmm.vms[0].memb = 10
                         vmm.run_index += 1
                         vmm.set_params(num_cores, begin_core, data)
                         vmm.preprocess()
@@ -769,6 +863,10 @@ if __name__ == "__main__":
                         num_cores += 4
                     elif vmm.mode == 'begin_core':
                         begin_core += 4
+                    elif vmm.mode == 'llc':
+                        vmm.vms[0].llc_ways_end += 1
+                    elif vmm.mode == 'memb':
+                        vmm.vms[0].memb += 10
                     vmm.set_params(num_cores, begin_core, data)
                     vmm.preprocess()
             elif cmd[0] == 'end':
@@ -794,13 +892,16 @@ if __name__ == "__main__":
         num_cores = 8
         vmm.set_cores(0, num_cores)
     elif param == 'ssh':
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh.connect(hostname='192.168.122.153', port=22, username='root', password='123')
-        stdin, stdout, stderr = ssh.exec_command('cd /root/control_exp; ./test_server.py run 12349')
-        print(stdout.read())
-        print(stderr.read())
-        #sys.stdout = stdout
-        #ssh.close()
+        vmm.force_cmd(0)
+        #vm_id = 0
+        #vm = vmm.vms[vm_id]
+        #vm.get_ip()
+        #p = exec_cmd("ssh -t %s 'cd /root/vm_control/control_exp && ./test_server.py run 12345' > %s.log" % (vm.ip, vm.vm_name), 1, True)
+        #ssh = paramiko.SSHClient()
+        #ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        #ssh.connect(hostname='192.168.122.169', port=22, username='root', password='123')
+        #stdin, stdout, stderr = ssh.exec_command('cd /root/vm_control/control_exp && ./test_server.py run 12345')
+        #print(stdout.read())
+        #print(stderr.read())
     else:
         print("param error")
