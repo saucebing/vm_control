@@ -135,7 +135,7 @@ if param == 'test':
     #benchs = ['splash2x.water_nsquared', 'splash2x.water_spatial', 'splash2x.raytrace', 'splash2x.ocean_cp', 'splash2x.ocean_ncp', 'splash2x.fmm', 'parsec.swaptions']
     benchs = ['parsec.blackscholes', 'parsec.canneal', 'parsec.fluidanimate', 'parsec.freqmine', 'parsec.streamcluster', 'parsec.vips']
     #run_parsec_parallel('4 parsec.ferret', parsec_scale, parsec_times, 18)
-    run_NPB_parallel('ep', 16, 1)
+    #run_NPB_parallel('ep', 16, 1)
     #run_parsec_parallel('4 splash2x.water_nsquared', parsec_scale, parsec_times, 1)
     #for bench_id in range(6, len(benchs)):
     #    run_parsec_parallel('4 %s' % benchs[bench_id], parsec_scale, parsec_times, 1)
@@ -167,8 +167,14 @@ elif param == 'run':
                     #else:
                     #    task = '4 %s' % task_name
                     #    num_threads = int(int(n_cores) / 4)
-                    task = '16 %s' % task_name
-                    num_threads = int(int(n_cores) / 16)
+                    task = ''
+                    num_threads = 0
+                    if int(n_cores) == 4:
+                        task = '4 %s' % task_name
+                        num_threads = int(int(n_cores) / 4)
+                    elif int(n_cores) == 16:
+                        task = '16 %s' % task_name
+                        num_threads = int(int(n_cores) / 16)
                     #avg_perf = run_parsec(task, parsec_scale)
                     os.system('rm -rf /root/parsec-3.0/result/*')
                     avg_perf = run_parsec_parallel(task, parsec_scale, parsec_times, num_threads)
