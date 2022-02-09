@@ -9,7 +9,7 @@ import paramiko
 
 import numpy as np
 import matplotlib
-matplotlib.use('TkAgg')
+#matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from scipy.interpolate import splev, splrep
 
@@ -52,6 +52,10 @@ def find_str(pattern, string):
 def find_list(pattern, lst):
     pat = re.compile(pattern)
     return [item for item in lst if pat.findall(item)]
+
+def find_list_2(pattern, lst):
+    pat = re.compile(pattern)
+    return [pat.findall(item)[0] for item in lst if pat.findall(item)]
 
 def split_str(string):
     return list(filter(lambda x:x, string.split()))
@@ -142,7 +146,8 @@ class VM:
         cmd = "virsh qemu-agent-command %s '%s'" % (self.vm_name, cmd1)
         exec_cmd(cmd, vm_id = self.vm_id)
         content = get_res()
-        self.ip = find_str('(192\.168\.122\.[0-9]+)', content)
+        #self.ip = find_str('(192\.168\.122\.[0-9]+)', content)
+        self.ip = find_str('(10\.109\.[0-9]+\.[0-9]+)', content)
         self.print(self.ip)
 
     def get_state(self):     #running, shut off
@@ -276,7 +281,10 @@ class VMM:
     mode = ''
 
     def __init__(self):
-        VMM.N_CORE = 80
+        cmd = 'lscpu'
+        exec_cmd(cmd)
+        n_core = find_str('.*CPU\(s\)[^0-9]*([0-9]+).*', get_res())
+        VMM.N_CORE = int(n_core)
         VMM.H_CORE = int(VMM.N_CORE / 2)
         VMM.Q_CORE = int(VMM.N_CORE / 4)
         VMM.N_RDT = 5
@@ -759,20 +767,20 @@ if __name__ == "__main__":
     vmm = VMM()
 
     #new VMs
-    num_vms = 2
+    num_vms = 1
     for vm_id in range(0, num_vms):
         vm_name = 'centos8_test%d' % vm_id
         vmm.new_vm(vm_id, vm_name)
     if param == 'init':
         for vm_id in range(0, num_vms):
             vm = vmm.vms[vm_id]
+            vm.setvcpus_dyn(1)
             vm.setvcpus_sta(VMM.H_CORE)
             vm.setmem_sta(64)
             vm.shutdown()
             time.sleep(10)
             vm.start()
-            time.sleep(10)
-            vm.setvcpus_dyn(1)
+            time.sleep(20)
             vm.setmem_dyn(16)
     elif param == 'core':
         for vm_id in range(0, num_vms):
