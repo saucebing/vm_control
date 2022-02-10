@@ -905,9 +905,9 @@ if __name__ == "__main__":
         begin_core = 0
         #vmm.init_mode('begin_core')
         #vmm.init_mode('num_cores')
-        #vmm.init_mode('llc')
+        vmm.init_mode('llc')
         #vmm.init_mode('memb')
-        vmm.init_mode('share_llc')
+        #vmm.init_mode('share_llc')
         while True:
             for vm_id in range(0, num_vms):
                 (cmd[vm_id], data[vm_id]) = decode(vmm.vms[vm_id].recv())
