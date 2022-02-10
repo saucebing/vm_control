@@ -489,7 +489,7 @@ class VMM:
 
             rdt = RDT()
             if self.mode == 'llc' or self.mode == 'memb' or self.mode == 'share_llc':
-                rdt.set_llc(self, vm_id, vm.llc_ways_beg, vm.llc_ways_end)
+                rdt.set_llc_range(self, vm_id, vm.llc_ways_beg, vm.llc_ways_end)
                 rdt.set_mb(self, vm_id, vm.memb)
 
             vm.client.send('tasks:%d %s' % (vm.num_cores, self.benchs[self.bench_id]))
@@ -675,20 +675,80 @@ class RDT:
     def __init__(self):
         pass
 
-    def llc2bit(self, beg, end):
+    def range2bit(self, beg, end):
         llc_ways = 0x0
         for way_id in range(beg, end):
             llc_ways |= (1 << way_id)
         return llc_ways
 
-    def set_llc(self, vmm, vm_id, way_beg, way_end):
+    def list2bit_list(self, lst):
+        bit_list = [0] * 11
+        for way_id in lst:
+            bit_list[way_id] = 1
+        return bit_list
+
+    def bit_list2list(self, bit_list):
+        lst = []
+        for (way_id, bit) in enumerate(bit_list):
+            if bit == 0x1:
+                lst.append(way_id)
+        return lst
+
+    def list2bit(self, lst):
+        llc_ways = 0x0
+        for way_id in lst:
+            llc_ways |= (1 << way_id)
+        return llc_ways
+
+    def bit2list(self, bit):
+        lst = []
+        cnt = 0
+        while not bit == 0:
+            if bit & 0x1 == 0x1:
+                lst.append(cnt)
+            bit = bit >> 1
+            cnt += 1
+        return lst
+
+    def bit_list2bit(self, bit_list):
+        llc_ways = 0x0
+        for (way_id, bit) in enumerate(bit_list):
+            llc_ways |= (bit << way_id)
+        return llc_ways
+
+    def bit2bit_list(self, bit):
+        bit_list = []
+        while not bit == 0:
+            if bit & 0x1 == 0x1:
+                bit_list.append(1)
+            else:
+                bit_list.append(0)
+            bit = bit >> 1
+        while len(bit_list) < 11:
+            bit_list.append(0)
+        return bit_list
+
+    def set_llc_range(self, vmm, vm_id, way_beg, way_end):
+        llc_ways = self.range2bit(way_beg, way_end)
+        self.set_llc(vmm, vm_id, llc_ways)
+
+    def set_llc_list(self, vmm, vm_id, lst):
+        llc_ways = self.list2bit(lst)
+        self.set_llc(vmm, vm_id, llc_ways)
+
+    def set_llc_bitlist(self, vmm, vm_id, bit_list):
+        llc_ways = self.bit_list2bit(bit_list)
+        self.set_llc(vmm, vm_id, llc_ways)
+
+    def set_llc(self, vmm, vm_id, llc_ways):
         core_list = []
         for core_id in range(0, vmm.vms[vm_id].num_cores):
             core_list.append(str(vmm.maps_vm_core[(vm_id, core_id)]))
         core_list = ",".join(core_list)
-        llc_ways = self.llc2bit(way_beg, way_end)
         cmd1 = 'pqos-msr -e "llc:%d=0x%x"' % (vm_id + 1, llc_ways)
         cmd2 = 'pqos-msr -a "cos:%d=%s"' % (vm_id + 1, core_list)
+        print(cmd1)
+        print(cmd2)
         exec_cmd(cmd1)
         exec_cmd(cmd2)
 
@@ -1002,8 +1062,9 @@ if __name__ == "__main__":
         rdt = RDT()
         num_cores = 8
         vmm.set_cores(0, num_cores)
-        rdt.set_llc(vmm, 0, 1, 3)
+        rdt.set_llc_range(vmm, 0, 1, 3)
         rdt.set_mb(vmm, 0, 30)
+
         #rdt.show()
     elif param == 'clean':
         rdt = RDT()
