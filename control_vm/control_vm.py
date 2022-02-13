@@ -325,7 +325,7 @@ class VMM:
         vm.bind_mem()
 
     def get_rdt(self):
-        exec_cmd('pqos-msr -t 1')
+        exec_cmd('pqos -t 1')
         res = get_res()
         #print(res)
         res = res.split('\n')
@@ -419,7 +419,7 @@ class VMM:
     def param_bench_id(self, vm_id):
         if self.mode == 'share_llc':
             if vm_id == 0:
-                return self.benchs.index('splash2x.raytrace')
+                return self.benchs.index('splash2x.water_nsquared')
             elif vm_id == 1:
                 return self.benchs.index('parsec.canneal')
         else:
@@ -492,7 +492,10 @@ class VMM:
                 rdt.set_llc_range(self, vm_id, vm.llc_ways_beg, vm.llc_ways_end)
                 rdt.set_mb(self, vm_id, vm.memb)
 
-            vm.client.send('tasks:%d %s' % (vm.num_cores, self.benchs[self.bench_id]))
+            if self.mode == 'num_cores' or self.mode == 'begin_cores' or self.mode == 'llc' or self.mode == 'memb':
+                vm.client.send('tasks:%d %s' % (vm.num_cores, self.benchs[self.bench_id]))
+            elif self.mode == 'share_llc':
+                vm.client.send('limited_time:%d %s' % (vm.num_cores, self.benchs[self.bench_id]))
         time.sleep(0.5)
         self.record = [[]] * len(self.params)
         num_sample = 5
@@ -745,8 +748,8 @@ class RDT:
         for core_id in range(0, vmm.vms[vm_id].num_cores):
             core_list.append(str(vmm.maps_vm_core[(vm_id, core_id)]))
         core_list = ",".join(core_list)
-        cmd1 = 'pqos-msr -e "llc:%d=0x%x"' % (vm_id + 1, llc_ways)
-        cmd2 = 'pqos-msr -a "cos:%d=%s"' % (vm_id + 1, core_list)
+        cmd1 = 'pqos -e "llc:%d=0x%x"' % (vm_id + 1, llc_ways)
+        cmd2 = 'pqos -a "core:%d=%s"' % (vm_id + 1, core_list)
         print(cmd1)
         print(cmd2)
         exec_cmd(cmd1)
@@ -757,17 +760,17 @@ class RDT:
         for core_id in range(0, vmm.vms[vm_id].num_cores):
             core_list.append(str(vmm.maps_vm_core[(vm_id, core_id)]))
         core_list = ",".join(core_list)
-        cmd1 = 'pqos-msr -e "mba:%d=%d"' % (vm_id + 1, mba_perc)
-        cmd2 = 'pqos-msr -a "cos:%d=%s"' % (vm_id + 1, core_list)
+        cmd1 = 'pqos -e "mba:%d=%d"' % (vm_id + 1, mba_perc)
+        cmd2 = 'pqos -a "core:%d=%s"' % (vm_id + 1, core_list)
         exec_cmd(cmd1)
         exec_cmd(cmd2)
 
     def reset(self):
-        cmd = 'pqos-msr -R'
+        cmd = 'pqos -R'
         exec_cmd(cmd)
 
     def show(self):
-        cmd = 'pqos-msr -s'
+        cmd = 'pqos -s'
         exec_cmd(cmd)
         print(get_res())
 
@@ -818,7 +821,7 @@ class Exp:
         self.data = data
 
     def print(self):
-        self.vmm.vms[0].print("[%s%d, %d, %s, %d, %d, %s%s%d, %d, %d, %s%s%f, %f, %f, %f, %f, %f, %f, %s%s%f%s]" % (color.beg6, self.vm_id, self.bench_id, self.bench_name, self.begin_core, self.num_cores, color.end, color.beg5, self.llc_ways_beg, self.llc_ways_end, self.memb, color.end, color.beg6, self.avg_freq, self.bzy_freq, self.ipc, self.miss, self.LLC, self.MBL, self.MBR, color.end, color.beg5, self.runtime, color.end))
+        self.vmm.vms[0].print("[%s%d, %d, %s, %d, %d, %s%s%d, %d, %d, %s%s%f, %f, %s%s%f, %s%s%f, %f, %f, %f, %s%s%f%s]" % (color.beg6, self.vm_id, self.bench_id, self.bench_name, self.begin_core, self.num_cores, color.end, color.beg5, self.llc_ways_beg, self.llc_ways_end, self.memb, color.end, color.beg6, self.avg_freq, self.bzy_freq, color.end, color.beg5, self.ipc, color.end, color.beg6, self.miss, self.LLC, self.MBL, self.MBR, color.end, color.beg5, self.runtime, color.end))
         #self.vmm.vms[self.vm_id].print('vm_id = %02d, bench_id = %02d, bench_name = %20s, begin_core = %02d, num_cores = %02d, avg_freq = %.2f, bzy_freq = %.2f, ipc = %.2f, runtime = %.2f' % (self.vm_id, self.bench_id, self.bench_name, self.begin_core, self.num_cores, self.avg_freq, self.bzy_freq, self.ipc, self.runtime))
 
 if __name__ == "__main__":
@@ -827,7 +830,7 @@ if __name__ == "__main__":
     vmm = VMM()
 
     #new VMs
-    num_vms = 1
+    num_vms = 2
     for vm_id in range(0, num_vms):
         vm_name = 'centos8_test%d' % vm_id
         vmm.new_vm(vm_id, vm_name)
@@ -965,9 +968,9 @@ if __name__ == "__main__":
         begin_core = 0
         #vmm.init_mode('begin_core')
         #vmm.init_mode('num_cores')
-        vmm.init_mode('llc')
+        #vmm.init_mode('llc')
         #vmm.init_mode('memb')
-        #vmm.init_mode('share_llc')
+        vmm.init_mode('share_llc')
         while True:
             for vm_id in range(0, num_vms):
                 (cmd[vm_id], data[vm_id]) = decode(vmm.vms[vm_id].recv())
@@ -977,12 +980,12 @@ if __name__ == "__main__":
                 elif vmm.mode == 'begin_core':
                     num_cores = 64
                 elif vmm.mode == 'llc':
-                    num_cores = 4
+                    num_cores = 16
                     vmm.vms[0].llc_ways_end = 0
                     vmm.vms[0].llc_ways_end = 1
                     vmm.vms[0].memb = 100
                 elif vmm.mode == 'memb':
-                    num_cores = 4
+                    num_cores = 16
                     vmm.vms[0].llc_ways_end = 0
                     vmm.vms[0].llc_ways_end = 11
                     vmm.vms[0].memb = 10
@@ -1030,7 +1033,8 @@ if __name__ == "__main__":
                             vmm.vms[0].llc_range += 1
                             vmm.vms[1].llc_range += 1
                             vmm.vms[0].llc_ways_beg = 0
-                            vmm.vms[0].llc_ways_end = int(vmm.vms[0].llc_range / 2)
+                            #vmm.vms[0].llc_ways_end = int(vmm.vms[0].llc_range / 2)
+                            vmm.vms[0].llc_ways_end = 1
                             vmm.vms[1].llc_ways_end = vmm.vms[1].llc_range
                             vmm.vms[1].llc_ways_beg = vmm.vms[1].llc_ways_end - vmm.vms[0].llc_ways_end
                         vmm.run_index += 1
