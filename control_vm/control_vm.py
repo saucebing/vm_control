@@ -9,7 +9,7 @@ import paramiko
 
 import numpy as np
 import matplotlib
-matplotlib.use('TkAgg')
+#matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from scipy.interpolate import splev, splrep
 
@@ -52,6 +52,10 @@ def find_str(pattern, string):
 def find_list(pattern, lst):
     pat = re.compile(pattern)
     return [item for item in lst if pat.findall(item)]
+
+def find_list_2(pattern, lst):
+    pat = re.compile(pattern)
+    return [pat.findall(item)[0] for item in lst if pat.findall(item)]
 
 def split_str(string):
     return list(filter(lambda x:x, string.split()))
@@ -142,7 +146,8 @@ class VM:
         cmd = "virsh qemu-agent-command %s '%s'" % (self.vm_name, cmd1)
         exec_cmd(cmd, vm_id = self.vm_id)
         content = get_res()
-        self.ip = find_str('(192\.168\.122\.[0-9]+)', content)
+        #self.ip = find_str('(192\.168\.122\.[0-9]+)', content)
+        self.ip = find_str('(10\.109\.[0-9]+\.[0-9]+)', content)
         self.print(self.ip)
 
     def get_state(self):     #running, shut off
@@ -276,7 +281,10 @@ class VMM:
     mode = ''
 
     def __init__(self):
-        VMM.N_CORE = 80
+        cmd = 'lscpu'
+        exec_cmd(cmd)
+        n_core = find_str('.*CPU\(s\)[^0-9]*([0-9]+).*', get_res())
+        VMM.N_CORE = int(n_core)
         VMM.H_CORE = int(VMM.N_CORE / 2)
         VMM.Q_CORE = int(VMM.N_CORE / 4)
         VMM.N_RDT = 5
@@ -317,7 +325,7 @@ class VMM:
         vm.bind_mem()
 
     def get_rdt(self):
-        exec_cmd('pqos-msr -t 1')
+        exec_cmd('pqos -t 1')
         res = get_res()
         #print(res)
         res = res.split('\n')
@@ -411,7 +419,7 @@ class VMM:
     def param_bench_id(self, vm_id):
         if self.mode == 'share_llc':
             if vm_id == 0:
-                return self.benchs.index('splash2x.raytrace')
+                return self.benchs.index('splash2x.water_nsquared')
             elif vm_id == 1:
                 return self.benchs.index('parsec.canneal')
         else:
@@ -481,10 +489,13 @@ class VMM:
 
             rdt = RDT()
             if self.mode == 'llc' or self.mode == 'memb' or self.mode == 'share_llc':
-                rdt.set_llc(self, vm_id, vm.llc_ways_beg, vm.llc_ways_end)
+                rdt.set_llc_range(self, vm_id, vm.llc_ways_beg, vm.llc_ways_end)
                 rdt.set_mb(self, vm_id, vm.memb)
 
-            vm.client.send('tasks:%d %s' % (vm.num_cores, self.benchs[self.bench_id]))
+            if self.mode == 'num_cores' or self.mode == 'begin_cores' or self.mode == 'llc' or self.mode == 'memb':
+                vm.client.send('tasks:%d %s' % (vm.num_cores, self.benchs[self.bench_id]))
+            elif self.mode == 'share_llc':
+                vm.client.send('limited_time:%d %s' % (vm.num_cores, self.benchs[self.bench_id]))
         time.sleep(0.5)
         self.record = [[]] * len(self.params)
         num_sample = 5
@@ -667,20 +678,80 @@ class RDT:
     def __init__(self):
         pass
 
-    def llc2bit(self, beg, end):
+    def range2bit(self, beg, end):
         llc_ways = 0x0
         for way_id in range(beg, end):
             llc_ways |= (1 << way_id)
         return llc_ways
 
-    def set_llc(self, vmm, vm_id, way_beg, way_end):
+    def list2bit_list(self, lst):
+        bit_list = [0] * 11
+        for way_id in lst:
+            bit_list[way_id] = 1
+        return bit_list
+
+    def bit_list2list(self, bit_list):
+        lst = []
+        for (way_id, bit) in enumerate(bit_list):
+            if bit == 0x1:
+                lst.append(way_id)
+        return lst
+
+    def list2bit(self, lst):
+        llc_ways = 0x0
+        for way_id in lst:
+            llc_ways |= (1 << way_id)
+        return llc_ways
+
+    def bit2list(self, bit):
+        lst = []
+        cnt = 0
+        while not bit == 0:
+            if bit & 0x1 == 0x1:
+                lst.append(cnt)
+            bit = bit >> 1
+            cnt += 1
+        return lst
+
+    def bit_list2bit(self, bit_list):
+        llc_ways = 0x0
+        for (way_id, bit) in enumerate(bit_list):
+            llc_ways |= (bit << way_id)
+        return llc_ways
+
+    def bit2bit_list(self, bit):
+        bit_list = []
+        while not bit == 0:
+            if bit & 0x1 == 0x1:
+                bit_list.append(1)
+            else:
+                bit_list.append(0)
+            bit = bit >> 1
+        while len(bit_list) < 11:
+            bit_list.append(0)
+        return bit_list
+
+    def set_llc_range(self, vmm, vm_id, way_beg, way_end):
+        llc_ways = self.range2bit(way_beg, way_end)
+        self.set_llc(vmm, vm_id, llc_ways)
+
+    def set_llc_list(self, vmm, vm_id, lst):
+        llc_ways = self.list2bit(lst)
+        self.set_llc(vmm, vm_id, llc_ways)
+
+    def set_llc_bitlist(self, vmm, vm_id, bit_list):
+        llc_ways = self.bit_list2bit(bit_list)
+        self.set_llc(vmm, vm_id, llc_ways)
+
+    def set_llc(self, vmm, vm_id, llc_ways):
         core_list = []
         for core_id in range(0, vmm.vms[vm_id].num_cores):
             core_list.append(str(vmm.maps_vm_core[(vm_id, core_id)]))
         core_list = ",".join(core_list)
-        llc_ways = self.llc2bit(way_beg, way_end)
-        cmd1 = 'pqos-msr -e "llc:%d=0x%x"' % (vm_id + 1, llc_ways)
-        cmd2 = 'pqos-msr -a "cos:%d=%s"' % (vm_id + 1, core_list)
+        cmd1 = 'pqos -e "llc:%d=0x%x"' % (vm_id + 1, llc_ways)
+        cmd2 = 'pqos -a "core:%d=%s"' % (vm_id + 1, core_list)
+        print(cmd1)
+        print(cmd2)
         exec_cmd(cmd1)
         exec_cmd(cmd2)
 
@@ -689,17 +760,17 @@ class RDT:
         for core_id in range(0, vmm.vms[vm_id].num_cores):
             core_list.append(str(vmm.maps_vm_core[(vm_id, core_id)]))
         core_list = ",".join(core_list)
-        cmd1 = 'pqos-msr -e "mba:%d=%d"' % (vm_id + 1, mba_perc)
-        cmd2 = 'pqos-msr -a "cos:%d=%s"' % (vm_id + 1, core_list)
+        cmd1 = 'pqos -e "mba:%d=%d"' % (vm_id + 1, mba_perc)
+        cmd2 = 'pqos -a "core:%d=%s"' % (vm_id + 1, core_list)
         exec_cmd(cmd1)
         exec_cmd(cmd2)
 
     def reset(self):
-        cmd = 'pqos-msr -R'
+        cmd = 'pqos -R'
         exec_cmd(cmd)
 
     def show(self):
-        cmd = 'pqos-msr -s'
+        cmd = 'pqos -s'
         exec_cmd(cmd)
         print(get_res())
 
@@ -750,7 +821,7 @@ class Exp:
         self.data = data
 
     def print(self):
-        self.vmm.vms[0].print("[%s%d, %d, %s, %d, %d, %s%s%d, %d, %d, %s%s%f, %f, %f, %f, %f, %f, %f, %s%s%f%s]" % (color.beg6, self.vm_id, self.bench_id, self.bench_name, self.begin_core, self.num_cores, color.end, color.beg5, self.llc_ways_beg, self.llc_ways_end, self.memb, color.end, color.beg6, self.avg_freq, self.bzy_freq, self.ipc, self.miss, self.LLC, self.MBL, self.MBR, color.end, color.beg5, self.runtime, color.end))
+        self.vmm.vms[0].print("[%s%d, %d, %s, %d, %d, %s%s%d, %d, %d, %s%s%f, %f, %s%s%f, %s%s%f, %f, %f, %f, %s%s%f%s]" % (color.beg6, self.vm_id, self.bench_id, self.bench_name, self.begin_core, self.num_cores, color.end, color.beg5, self.llc_ways_beg, self.llc_ways_end, self.memb, color.end, color.beg6, self.avg_freq, self.bzy_freq, color.end, color.beg5, self.ipc, color.end, color.beg6, self.miss, self.LLC, self.MBL, self.MBR, color.end, color.beg5, self.runtime, color.end))
         #self.vmm.vms[self.vm_id].print('vm_id = %02d, bench_id = %02d, bench_name = %20s, begin_core = %02d, num_cores = %02d, avg_freq = %.2f, bzy_freq = %.2f, ipc = %.2f, runtime = %.2f' % (self.vm_id, self.bench_id, self.bench_name, self.begin_core, self.num_cores, self.avg_freq, self.bzy_freq, self.ipc, self.runtime))
 
 if __name__ == "__main__":
@@ -766,13 +837,13 @@ if __name__ == "__main__":
     if param == 'init':
         for vm_id in range(0, num_vms):
             vm = vmm.vms[vm_id]
+            vm.setvcpus_dyn(1)
             vm.setvcpus_sta(VMM.H_CORE)
             vm.setmem_sta(64)
             vm.shutdown()
             time.sleep(10)
             vm.start()
-            time.sleep(10)
-            vm.setvcpus_dyn(1)
+            time.sleep(20)
             vm.setmem_dyn(16)
     elif param == 'core':
         for vm_id in range(0, num_vms):
@@ -909,12 +980,12 @@ if __name__ == "__main__":
                 elif vmm.mode == 'begin_core':
                     num_cores = 64
                 elif vmm.mode == 'llc':
-                    num_cores = 4
+                    num_cores = 16
                     vmm.vms[0].llc_ways_end = 0
                     vmm.vms[0].llc_ways_end = 1
                     vmm.vms[0].memb = 100
                 elif vmm.mode == 'memb':
-                    num_cores = 4
+                    num_cores = 16
                     vmm.vms[0].llc_ways_end = 0
                     vmm.vms[0].llc_ways_end = 11
                     vmm.vms[0].memb = 10
@@ -962,7 +1033,8 @@ if __name__ == "__main__":
                             vmm.vms[0].llc_range += 1
                             vmm.vms[1].llc_range += 1
                             vmm.vms[0].llc_ways_beg = 0
-                            vmm.vms[0].llc_ways_end = int(vmm.vms[0].llc_range / 2)
+                            #vmm.vms[0].llc_ways_end = int(vmm.vms[0].llc_range / 2)
+                            vmm.vms[0].llc_ways_end = 1
                             vmm.vms[1].llc_ways_end = vmm.vms[1].llc_range
                             vmm.vms[1].llc_ways_beg = vmm.vms[1].llc_ways_end - vmm.vms[0].llc_ways_end
                         vmm.run_index += 1
@@ -994,8 +1066,9 @@ if __name__ == "__main__":
         rdt = RDT()
         num_cores = 8
         vmm.set_cores(0, num_cores)
-        rdt.set_llc(vmm, 0, 1, 3)
+        rdt.set_llc_range(vmm, 0, 1, 3)
         rdt.set_mb(vmm, 0, 30)
+
         #rdt.show()
     elif param == 'clean':
         rdt = RDT()
