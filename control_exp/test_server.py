@@ -177,56 +177,62 @@ if param == 'test':
 elif param == 'run':
     debug = True
     port = int(sys.argv[2])
-    server = server.SERVER()
+    serv = server.SERVER()
     if not debug:
-        server.set_port(port)
-    server.build()
-    data = 0
-    try:
-        while True:
-            (cmd, data) = decode(server.recv())
-            if cmd == 'begin':
-                server.send('begin:0')
-            elif cmd == 'end':
-                server.send('end:0')
-                break #modify file
-            elif cmd == 'tasks' or cmd == 'limited_time':
-                if cmd == 'limited_time':
-                    limited_time = 15
-                (n_cores, task_name) = find_str2('([0-9]+)(.*)', data)
-                n_cores = n_cores.strip()
-                task_name = task_name.strip()
-                if 'splash2x' in task_name or 'parsec' in task_name:
-                    #if 'ocean_ncp' in task_name:    #special deal
-                    #    num_threads = 4
-                    #    tasks_per_thread = int(int(n_cores) / num_threads)
-                    #    task = '%d %s' % (tasks_per_thread, task_name)
-                    #else:
-                    #    task = '4 %s' % task_name
-                    #    num_threads = int(int(n_cores) / 4)
-                    task = ''
-                    num_threads = 0
-                    if int(n_cores) == 4:
-                        task = '4 %s' % task_name
-                        num_threads = int(int(n_cores) / 4)
-                    elif int(n_cores) == 16:
-                        task = '16 %s' % task_name
-                        num_threads = int(int(n_cores) / 16)
-                    #avg_perf = run_parsec(task, parsec_scale)
-                    os.system('rm -rf /root/parsec-3.0/result/*')
-                    avg_perf = run_parsec_parallel(task, parsec_scale, parsec_times, num_threads, limited_time)
-                    print(avg_perf, 's')
-                    server.send('res:%f' % avg_perf)
-                elif 'NPB' in task_name:
-                    task_name = task_name[4:].lower()
-                    num_threads = int(n_cores)
-                    avg_perf = run_NPB_parallel(task_name, num_threads, 1, limited_time)
-                    print(avg_perf, 's')
-                    server.send('res:%f' % avg_perf)
-        server.client_close()
-        server.server_close()
-    except KeyboardInterrupt:
-        server.client_close()
-        server.server_close()
+        serv.set_port(port)
+    serv.build()
+    while True:
+        data = 0
+        try:
+            while True:
+                (cmd, data) = decode(serv.recv())
+                if cmd == 'begin':
+                    serv.send('begin:0')
+                elif cmd == 'end':
+                    serv.send('end:0')
+                    break #modify file
+                elif cmd == 'all_end':
+                    break
+                elif cmd == 'tasks' or cmd == 'limited_time':
+                    if cmd == 'limited_time':
+                        limited_time = 15
+                    (n_cores, task_name) = find_str2('([0-9]+)(.*)', data)
+                    n_cores = n_cores.strip()
+                    task_name = task_name.strip()
+                    if 'splash2x' in task_name or 'parsec' in task_name:
+                        #if 'ocean_ncp' in task_name:    #special deal
+                        #    num_threads = 4
+                        #    tasks_per_thread = int(int(n_cores) / num_threads)
+                        #    task = '%d %s' % (tasks_per_thread, task_name)
+                        #else:
+                        #    task = '4 %s' % task_name
+                        #    num_threads = int(int(n_cores) / 4)
+                        task = ''
+                        num_threads = 0
+                        if int(n_cores) == 4:
+                            task = '4 %s' % task_name
+                            num_threads = int(int(n_cores) / 4)
+                        elif int(n_cores) == 16:
+                            task = '16 %s' % task_name
+                            num_threads = int(int(n_cores) / 16)
+                        #avg_perf = run_parsec(task, parsec_scale)
+                        os.system('rm -rf /root/parsec-3.0/result/*')
+                        avg_perf = run_parsec_parallel(task, parsec_scale, parsec_times, num_threads, limited_time)
+                        print(avg_perf, 's')
+                        serv.send('res:%f' % avg_perf)
+                    elif 'NPB' in task_name:
+                        task_name = task_name[4:].lower()
+                        num_threads = int(n_cores)
+                        avg_perf = run_NPB_parallel(task_name, num_threads, 1, limited_time)
+                        print(avg_perf, 's')
+                        serv.send('res:%f' % avg_perf)
+            if cmd == 'all_end':
+                serv.client_close()
+                serv.server_close()
+                break
+        except KeyboardInterrupt:
+            serv.client_close()
+            serv.server_close()
+            break
 else:
     print('param error')
