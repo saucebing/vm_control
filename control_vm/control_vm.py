@@ -109,18 +109,24 @@ class color:
     beg4 = blue + bold
     beg5 = yellow + bold
     beg6 = white
+    beg7 = red + bold
 
 class VM:
     vm_name = ''
     vm_id = 0
-    num_cores = 0
     ip = ''
     state = ''
     client = None
     port = 0
 
+    num_cores = 0
+    begin_core = 0
+    bench_id = 0
+    data = 0 #running time
+
     llc_ways_beg = 0
     llc_ways_end = 11
+    llc_bitlist = []
     memb = 100
     
     llc_range = 1
@@ -133,6 +139,7 @@ class VM:
 
         self.llc_ways_beg = 0
         self.llc_ways_end = 11
+        self.llc_bitlist = [1] * 11
         self.memb = 100
 
         self.llc_range = 1
@@ -168,7 +175,6 @@ class VM:
         self.print('ip:', self.ip)
         self.client.set_ip(self.ip)
         self.client.connect()
-        self.client.send('begin:0')
 
     def send(self, msg):
         self.client.send(msg)
@@ -325,7 +331,7 @@ class VMM:
         vm.bind_mem()
 
     def get_rdt(self):
-        exec_cmd('pqos -t 1')
+        exec_cmd('pqos -i 60 -t 6')
         res = get_res()
         #print(res)
         res = res.split('\n')
@@ -385,8 +391,8 @@ class VMM:
         for i in range(0, N_METRICS):
             mets.append([])
         for i in range(0, num):
-            freq = self.get_freq()
             rdt = self.get_rdt()
+            freq = self.get_freq()
             mets[0].append(freq[0])
             mets[1].append(freq[1])
             mets[2].append(rdt[0])
@@ -416,46 +422,7 @@ class VMM:
         self.vms[vm_id].print('freq_rea_vm, freq_bsy_vm and ipc_vm is: ', met_vm[0], met_vm[1], met_vm[2])
         return met_vm
 
-    def param_bench_id(self, vm_id):
-        if self.mode == 'share_llc':
-            if vm_id == 0:
-                return self.benchs.index('splash2x.water_nsquared')
-            elif vm_id == 1:
-                return self.benchs.index('parsec.canneal')
-        else:
-            if vm_id == 0:
-                return self.run_index
-            elif vm_id == 1:
-                if self.mode == 'num_cores':
-                    return (self.run_index + 1) % 3
-                elif self.mode == 'begin_core':
-                    return self.run_index
-
-    def param_num_cores(self, vm_id, num_cores):
-        if self.mode == 'share_llc':
-            return num_cores
-        else:
-            if vm_id == 0:
-                return num_cores
-            elif vm_id == 1:
-                return VMM.H_CORE - num_cores
-
-    def param_begin_core(self, vm_id, begin_core):
-        if self.mode == 'num_cores':
-            return begin_core
-        elif self.mode == 'begin_core':
-            if vm_id == 0:
-                return begin_core
-            elif vm_id == 1:
-                return 0
-        elif self.mode == 'llc':
-            return begin_core
-        elif self.mode == 'memb':
-            return begin_core
-        elif self.mode == 'share_llc':
-            return begin_core
-
-    def end_event(self, num_cores, begin_core):
+    def end_stage1(self, num_cores, begin_core):
         if self.mode == 'num_cores':
             return (self.num_vms == 1 and num_cores == VMM.H_CORE) or (self.num_vms == 2 and num_cores == VMM.H_CORE - 4)
         elif self.mode == 'begin_core':
@@ -466,47 +433,71 @@ class VMM:
             return vmm.vms[0].memb == 100
         elif self.mode == 'share_llc':
             return vmm.vms[0].llc_ways_end == vmm.vms[0].llc_range
+        elif self.mode == 'super_share':
+            return True
 
-    def end_all(self):
+    def end_stage2(self):
         if self.mode == 'num_cores' or self.mode == 'begin_core' or self.mode == 'llc' or self.mode == 'memb':
             return self.run_index == len(self.benchs) - 1
         elif self.mode == 'share_llc':
             return vmm.vms[0].llc_range == 11
-
-    def set_params(self, num_cores, begin_core, data):
-        for vm_id in range(0, self.num_vms):
-            self.params[vm_id] = [vm_id, self.param_bench_id(vm_id), self.param_num_cores(vm_id, num_cores), self.param_begin_core(vm_id, begin_core), data[vm_id]]
+        elif self.mode == 'super_share':
+            return self.run_index == 5
 
     def init_mode(self, mode):
         self.mode = mode #num_cores, begin_core
 
+    def clear_records(self):
+        #new records
+        self.records = []
+        for vm_id in range(0, num_vms):
+            self.records.append([])
+
+    def connect_client(self):
+        debug = True
+        vmm.records = [[]] * num_vms
+        for vm_id in range(0, num_vms):
+            vmm.records[vm_id] = []
+            if not debug:
+                vmm.force_cmd(vm_id)
+            else:
+                vmm.vms[vm_id].set_port(12345)
+            vmm.vms[vm_id].connect()
+
+    def connect_close(self):
+        for vm in vmm.vms:
+            vm.send('all_end:0')
+        time.sleep(0.2)
+        for vm_id in range(0, num_vms):
+            vmm.vms[vm_id].client_close()
+
     def preprocess(self):
         time.sleep(0.5)
-        for [vm_id, bench_id, num_cores, begin_core, data] in self.params:
-            self.bench_id = bench_id
-            vm = self.vms[vm_id]
-            self.set_cores(vm_id, num_cores, begin_core)
+        for vm in self.vms:
+            self.bench_id = vm.bench_id
+            vm_id = vm.vm_id
+            self.set_cores(vm.vm_id, vm.num_cores, vm.begin_core)
 
             rdt = RDT()
-            if self.mode == 'llc' or self.mode == 'memb' or self.mode == 'share_llc':
-                rdt.set_llc_range(self, vm_id, vm.llc_ways_beg, vm.llc_ways_end)
-                rdt.set_mb(self, vm_id, vm.memb)
+            rdt.set_llc_range(self, vm_id, vm.llc_ways_beg, vm.llc_ways_end)
+            rdt.set_mb(self, vm_id, vm.memb)
 
             if self.mode == 'num_cores' or self.mode == 'begin_cores' or self.mode == 'llc' or self.mode == 'memb':
                 vm.client.send('tasks:%d %s' % (vm.num_cores, self.benchs[self.bench_id]))
-            elif self.mode == 'share_llc':
+            elif self.mode == 'super_share' or self.mode == 'share_llc' or self.mode == 'test_benchmark':
                 vm.client.send('limited_time:%d %s' % (vm.num_cores, self.benchs[self.bench_id]))
+
         time.sleep(0.5)
-        self.record = [[]] * len(self.params)
-        num_sample = 5
+        self.record = [None] * self.num_vms
+        num_sample = 1
         res = self.get_metrics(num_sample)
-        for [vm_id, bench_id, num_cores, begin_core, data] in self.params:
+        for vm in self.vms:
+            vm_id = vm.vm_id
             self.record[vm_id] = []
-            vm = self.vms[vm_id]
-            self.record[vm_id].append(vm.vm_id)
-            self.record[vm_id].append(bench_id)
-            self.record[vm_id].append(self.benchs[bench_id])
-            self.record[vm_id].append(begin_core)
+            self.record[vm_id].append(vm_id)
+            self.record[vm_id].append(vm.bench_id)
+            self.record[vm_id].append(self.benchs[vm.bench_id])
+            self.record[vm_id].append(vm.begin_core)
             self.record[vm_id].append(vm.num_cores)
             self.record[vm_id].append(vm.llc_ways_beg)
             self.record[vm_id].append(vm.llc_ways_end)
@@ -517,25 +508,204 @@ class VMM:
 
     def postprocess(self):
         data_dir = 'records'
-        for [vm_id, bench_id, num_cores, begin_core, data] in self.params:
-            vm = self.vms[vm_id]
-            data = float(data)
+        for vm in self.vms:
+            vm_id = vm.vm_id
+            data = float(vm.data)
             vm.print('avg_perf: %f' % data)
             self.record[vm_id].append(data)
-            #print('self.record[%d]:' % vm_id, self.record[vm_id])
+
+            exp = Exp(vmm, self.record[vm_id])
+            exp.print_title(vm_id)
+            exp.print(vm_id)
+
         res = []
         for j in range(0, self.num_vms):
             res.append(self.record[j])
-        for [vm_id, bench_id, num_cores, begin_core, data] in self.params:
+        for vm in self.vms:
+            vm_id = vm.vm_id
             self.records[vm_id].append(res)
-            #print('self.records[%d]:' % vm_id, self.records[vm_id])
-            vm.print('bench_id: %d, benchmark: %s, num_cores: %d\nrecords: ' % (bench_id, self.benchs[bench_id], vm.num_cores), self.records[vm_id])
-            f = open('%s/%03d_%03d_%03d_%s.log' % (data_dir, vm_id, self.run_index, bench_id, self.benchs[bench_id]), 'wb')
-            #pickle.dump(self.record[vm_id], f)
+            f = open('%s/%03d_%03d_%03d_%s.log' % (data_dir, vm_id, self.run_index, vm.bench_id, self.benchs[vm.bench_id]), 'wb')
             pickle.dump(self.records[vm_id], f)
             f.close()
         VMM.visited = [False] * VMM.N_CORE
         self.maps_vm_core = bidict()
+
+    def init_benchmark(self):
+        if self.mode == 'num_cores':
+            self.vms[0].num_cores = 4
+            self.vms[1].num_cores = VMM.H_CORE - num_cores
+            self.vms[0].begin_core = 0
+            self.vms[1].begin_core = 0
+            self.vms[0].bench_id = self.run_index
+            self.vms[1].bench_id = self.run_index
+        elif self.mode == 'begin_core':
+            self.vms[0].num_cores = 64
+            self.vms[1].num_cores = VMM.H_CORE - num_cores
+            self.vms[0].begin_core = 0
+            self.vms[1].begin_core = 0
+            self.vms[0].bench_id = self.run_index
+            self.vms[1].bench_id = self.run_index
+        elif self.mode == 'llc':
+            self.vms[0].num_cores = 16
+            self.vms[0].begin_core = 0
+            self.vms[0].bench_id = self.run_index
+            self.vms[0].llc_ways_end = 0
+            self.vms[0].llc_ways_end = 1
+            self.vms[0].memb = 100
+        elif self.mode == 'memb':
+            self.vms[0].num_cores = 16
+            self.vms[0].begin_core = 0
+            self.vms[0].bench_id = self.run_index
+            self.vms[0].llc_ways_end = 0
+            self.vms[0].llc_ways_end = 11
+            self.vms[0].memb = 10
+        elif self.mode == 'share_llc':
+            self.vms[0].num_cores = 16
+            self.vms[1].num_cores = 16
+            self.vms[0].begin_core = 0
+            self.vms[1].begin_core = 0
+            self.vms[0].bench_id = self.benchs.index('splash2x.water_nsquared')
+            self.vms[1].bench_id = self.benchs.index('splash2x.water_nsquared')
+            self.vms[0].llc_range = 1
+            self.vms[1].llc_range = 1
+            self.vms[0].llc_ways_beg = 0
+            self.vms[0].llc_ways_end = 1
+            self.vms[1].llc_ways_beg = 0
+            self.vms[1].llc_ways_end = 1
+            self.vms[0].memb = 100
+            self.vms[1].memb = 100
+        elif self.mode == 'super_share':
+            self.vms[0].num_cores = 16
+            self.vms[1].num_cores = 16
+            self.vms[0].begin_core = 0
+            self.vms[1].begin_core = 0
+            self.vms[0].bench_id = self.benchs.index('splash2x.water_nsquared')
+            self.vms[1].bench_id = self.benchs.index('splash2x.water_nsquared')
+            self.vms[0].llc_range = 11
+            self.vms[1].llc_range = 11
+            self.vms[0].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
+            self.vms[0].llc_ways_end = random.randint(self.vms[0].llc_ways_beg + 1, 11)
+            self.vms[1].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
+            self.vms[1].llc_ways_end = random.randint(self.vms[1].llc_ways_beg + 1, 11)
+            self.vms[0].memb = 100
+            self.vms[1].memb = 100
+        elif self.mode == 'test_benchmark':
+            self.vms[0].num_cores = 16
+            self.vms[1].num_cores = 16
+            self.vms[0].begin_core = 0
+            self.vms[1].begin_core = 0
+            self.vms[0].bench_id = 0
+            self.vms[1].bench_id = 0
+
+            self.vms[0].llc_range = 11
+            self.vms[1].llc_range = 11
+            self.vms[0].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
+            self.vms[0].llc_ways_end = random.randint(self.vms[0].llc_ways_beg + 1, 11)
+            self.vms[1].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
+            self.vms[1].llc_ways_end = random.randint(self.vms[1].llc_ways_beg + 1, 11)
+            self.vms[0].memb = 100
+            self.vms[1].memb = 100
+
+    def stage1_init_benchmark(self):
+        if self.mode == 'num_cores':
+            self.vms[0].num_cores += 4
+            self.vms[1].num_cores = VMM.H_CORE - num_cores
+        elif self.mode == 'begin_core':
+            self.vms[0].begin_core += 4
+            self.vms[1].begin_core = 0
+        elif self.mode == 'llc':
+            self.vms[0].llc_ways_end += 1
+        elif self.mode == 'memb':
+            self.vms[0].memb += 10
+        elif self.mode == 'share_llc':
+            self.vms[0].llc_ways_end += 1
+            self.vms[1].llc_ways_beg -= 1
+        elif self.mode == 'super_share':
+            self.vms[0].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
+            self.vms[0].llc_ways_end = random.randint(self.vms[0].llc_ways_beg + 1, 11)
+            self.vms[1].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
+            self.vms[1].llc_ways_end = random.randint(self.vms[1].llc_ways_beg + 1, 11)
+        elif self.mode == 'test_benchmark':
+            self.vms[0].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
+            self.vms[0].llc_ways_end = random.randint(self.vms[0].llc_ways_beg + 1, 11)
+            self.vms[1].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
+            self.vms[1].llc_ways_end = random.randint(self.vms[1].llc_ways_beg + 1, 11)
+
+    def stage2_init_benchmark(self):
+        if self.mode == 'num_cores':
+            self.clear_records() #the old data should be saved!
+            self.run_index += 1 #new file
+            self.vms[0].num_cores = 4
+            self.vms[1].num_cores = VMM.H_CORE - num_cores
+            self.vms[0].bench_id = self.run_index
+            self.vms[1].bench_id = self.run_index
+        elif self.mode == 'begin_core':
+            self.clear_records() #the old data should be saved!
+            self.run_index += 1 #new file
+            self.vms[0].begin_core = 0
+            self.vms[1].begin_core = 0
+            self.vms[0].bench_id = self.run_index
+            self.vms[1].bench_id = self.run_index
+        elif self.mode == 'llc':
+            self.clear_records() #the old data should be saved!
+            self.run_index += 1 #new file
+            self.vms[0].llc_ways_end = 1
+            self.vms[0].bench_id = self.run_index
+        elif self.mode == 'memb':
+            self.clear_records() #the old data should be saved!
+            self.run_index += 1 #new file
+            self.vms[0].memb = 10
+            self.vms[0].bench_id = self.run_index
+        elif self.mode == 'share_llc':
+            self.clear_records() #the old data should be saved!
+            self.run_index += 1 #new file
+            self.vms[0].bench_id = self.benchs.index('splash2x.water_nsquared')
+            self.vms[1].bench_id = self.benchs.index('splash2x.water_nsquared')
+            self.vms[0].llc_range += 1
+            self.vms[1].llc_range += 1
+            self.vms[0].llc_ways_beg = 0
+            #self.vms[0].llc_ways_end = int(self.vms[0].llc_range / 2)
+            self.vms[0].llc_ways_end = 1
+            self.vms[1].llc_ways_end = self.vms[1].llc_range
+            self.vms[1].llc_ways_beg = self.vms[1].llc_ways_end - self.vms[0].llc_ways_end
+        elif self.mode == 'super_share':
+            self.clear_records() #the old data should be saved!
+            self.run_index += 1 #new file
+            self.vms[0].bench_id = self.benchs.index('splash2x.water_nsquared')
+            self.vms[1].bench_id = self.benchs.index('splash2x.water_nsquared')
+            self.vms[0].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
+            self.vms[0].llc_ways_end = random.randint(self.vms[0].llc_ways_beg + 1, 11)
+            self.vms[1].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
+            self.vms[1].llc_ways_end = random.randint(self.vms[1].llc_ways_beg + 1, 11)
+        elif self.mode == 'test_benchmark':
+            self.clear_records() #the old data should be saved!
+            self.run_index += 1 #new file
+            self.vms[0].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
+            self.vms[0].llc_ways_end = random.randint(self.vms[0].llc_ways_beg + 1, 11)
+            self.vms[1].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
+            self.vms[1].llc_ways_end = random.randint(self.vms[1].llc_ways_beg + 1, 11)
+
+    def run_benchmark(self):
+        cmd = [None] * num_vms
+        data = [None] * num_vms
+        num_cores = 0 
+        begin_core = 0
+
+        for vm in self.vms:
+            vm.send('begin:0')
+        while True:
+            for vm_id in range(0, num_vms):
+                (cmd[vm_id], data[vm_id]) = decode(self.vms[vm_id].recv())
+            if cmd[0] == 'begin':   #Only vm 0 is the master node
+                self.preprocess()
+            elif cmd[0] == 'res':
+                self.vms[0].data = data[0]
+                self.vms[1].data = data[1]
+                self.postprocess()
+                for vm_id in range(0, num_vms):
+                    self.vms[vm_id].send('end:0')
+            elif cmd[0] == 'end':
+                break
 
     def read_records(self, data_dir, is_print = True):
         files = os.listdir(data_dir)
@@ -820,20 +990,25 @@ class Exp:
         self.vmm = vmm
         self.data = data
 
-    def print(self):
-        self.vmm.vms[0].print("[%s%d, %d, %s, %d, %d, %s%s%d, %d, %d, %s%s%f, %f, %s%s%f, %s%s%f, %f, %f, %f, %s%s%f%s]" % (color.beg6, self.vm_id, self.bench_id, self.bench_name, self.begin_core, self.num_cores, color.end, color.beg5, self.llc_ways_beg, self.llc_ways_end, self.memb, color.end, color.beg6, self.avg_freq, self.bzy_freq, color.end, color.beg5, self.ipc, color.end, color.beg6, self.miss, self.LLC, self.MBL, self.MBR, color.end, color.beg5, self.runtime, color.end))
-        #self.vmm.vms[self.vm_id].print('vm_id = %02d, bench_id = %02d, bench_name = %20s, begin_core = %02d, num_cores = %02d, avg_freq = %.2f, bzy_freq = %.2f, ipc = %.2f, runtime = %.2f' % (self.vm_id, self.bench_id, self.bench_name, self.begin_core, self.num_cores, self.avg_freq, self.bzy_freq, self.ipc, self.runtime))
+    def print_title(self, vm_id = 0):
+        self.vmm.vms[vm_id].print("[%svm_id, bench_id, bench_name, begin_core, num_cores, %s%sllc_ways_beg, llc_ways_end, memb, %s%sfreq_avg, freq_bzy, %s%sipc%s%s, miss, LLC, MBL, MBR, %s%stime%s]" % (color.beg1, color.end, color.beg5, color.end, color.beg1, color.end, color.beg5, color.end, color.beg1, color.end, color.beg5, color.end))
+
+    def print(self, vm_id = 0):
+        self.vmm.vms[vm_id].print("[%s%d, %d, %s, %d, %d, %s%s%d, %d, %d, %s%s%f, %f, %s%s%f, %s%s%f, %f, %f, %f, %s%s%f%s]" % (color.beg6, self.vm_id, self.bench_id, self.bench_name, self.begin_core, self.num_cores, color.end, color.beg5, self.llc_ways_beg, self.llc_ways_end, self.memb, color.end, color.beg6, self.avg_freq, self.bzy_freq, color.end, color.beg5, self.ipc, color.end, color.beg6, self.miss, self.LLC, self.MBL, self.MBR, color.end, color.beg5, self.runtime, color.end))
 
 if __name__ == "__main__":
     param = sys.argv[1]
-    #new vmm
-    vmm = VMM()
+    vmm = None
+    if not param == 'test_benchmark':
+        #new vmm
+        vmm = VMM()
 
-    #new VMs
-    num_vms = 2
-    for vm_id in range(0, num_vms):
-        vm_name = 'centos8_test%d' % vm_id
-        vmm.new_vm(vm_id, vm_name)
+        #new VMs
+        num_vms = 2
+        for vm_id in range(0, num_vms):
+            vm_name = 'centos8_test%d' % vm_id
+            vmm.new_vm(vm_id, vm_name)
+
     if param == 'init':
         for vm_id in range(0, num_vms):
             vm = vmm.vms[vm_id]
@@ -952,122 +1127,58 @@ if __name__ == "__main__":
         #plt.show()
 
     elif param == 'run':
-        debug = True
-        vmm.records = [[]] * num_vms
-        for vm_id in range(0, num_vms):
-            vmm.records[vm_id] = []
-            if not debug:
-                vmm.force_cmd(vm_id)
-            else:
-                vmm.vms[vm_id].set_port(12345)
-            vmm.vms[vm_id].connect()
+        vmm.connect_client()
 
-        cmd = [None] * num_vms
-        data = [None] * num_vms
-        num_cores = 0 
-        begin_core = 0
         #vmm.init_mode('begin_core')
         #vmm.init_mode('num_cores')
         #vmm.init_mode('llc')
         #vmm.init_mode('memb')
-        vmm.init_mode('share_llc')
+        #vmm.init_mode('share_llc')
+        vmm.init_mode('super_share')
+
+        vmm.init_benchmark()
         while True:
-            for vm_id in range(0, num_vms):
-                (cmd[vm_id], data[vm_id]) = decode(vmm.vms[vm_id].recv())
-            if cmd[0] == 'begin':   #Only vm 0 is the master node
-                if vmm.mode == 'num_cores':
-                    num_cores = 4
-                elif vmm.mode == 'begin_core':
-                    num_cores = 64
-                elif vmm.mode == 'llc':
-                    num_cores = 16
-                    vmm.vms[0].llc_ways_end = 0
-                    vmm.vms[0].llc_ways_end = 1
-                    vmm.vms[0].memb = 100
-                elif vmm.mode == 'memb':
-                    num_cores = 16
-                    vmm.vms[0].llc_ways_end = 0
-                    vmm.vms[0].llc_ways_end = 11
-                    vmm.vms[0].memb = 10
-                elif vmm.mode == 'share_llc':
-                    num_cores = 4
-                    vmm.vms[0].llc_range = 1
-                    vmm.vms[1].llc_range = 1
-                    vmm.vms[0].llc_ways_beg = 0
-                    vmm.vms[0].llc_ways_end = 1
-                    vmm.vms[1].llc_ways_beg = 0
-                    vmm.vms[1].llc_ways_end = 1
-                    vmm.vms[0].memb = 50
-                    vmm.vms[1].memb = 50
-
-                #sst = SST()
-                #if vmm.mode == 'num_cores':
-                #    sst.tf_close()
-                #elif vmm.mode == 'begin_core':
-                #    sst.tf(int(num_cores / 2)) #num is the number of physical cores
-                #time.sleep(1)
-
-                vmm.set_params(num_cores, begin_core, data)
-                vmm.preprocess()
-            elif cmd[0] == 'res':
-                vmm.set_params(num_cores, begin_core, data)
-                vmm.postprocess()
-
-                if vmm.end_event(num_cores, begin_core):
-                    if vmm.end_all():
-                        for vm_id in range(0, num_vms):
-                            vmm.vms[vm_id].send('end:0')
-                    else:
-                        vmm.records = []
-                        for vm_id in range(0, num_vms):
-                            vmm.records.append([])
-                        if vmm.mode == 'num_cores':
-                            num_cores = 4
-                        elif vmm.mode == 'begin_core':
-                            begin_core = 0
-                        elif vmm.mode == 'llc':
-                            vmm.vms[0].llc_ways_end = 1
-                        elif vmm.mode == 'memb':
-                            vmm.vms[0].memb = 10
-                        elif vmm.mode == 'share_llc':
-                            vmm.vms[0].llc_range += 1
-                            vmm.vms[1].llc_range += 1
-                            vmm.vms[0].llc_ways_beg = 0
-                            #vmm.vms[0].llc_ways_end = int(vmm.vms[0].llc_range / 2)
-                            vmm.vms[0].llc_ways_end = 1
-                            vmm.vms[1].llc_ways_end = vmm.vms[1].llc_range
-                            vmm.vms[1].llc_ways_beg = vmm.vms[1].llc_ways_end - vmm.vms[0].llc_ways_end
-                        vmm.run_index += 1
-                        vmm.set_params(num_cores, begin_core, data)
-                        vmm.preprocess()
+            vmm.run_benchmark()
+            if vmm.end_stage1(vmm.vms[0].num_cores, vmm.vms[0].begin_core):
+                if vmm.end_stage2():
+                    break
                 else:
-                    if vmm.mode == 'num_cores':
-                        num_cores += 4
-                    elif vmm.mode == 'begin_core':
-                        begin_core += 4
-                    elif vmm.mode == 'llc':
-                        vmm.vms[0].llc_ways_end += 1
-                    elif vmm.mode == 'memb':
-                        vmm.vms[0].memb += 10
-                    elif vmm.mode == 'share_llc':
-                        vmm.vms[0].llc_ways_end += 1
-                        vmm.vms[1].llc_ways_beg -= 1
-                    vmm.set_params(num_cores, begin_core, data)
-                    vmm.preprocess()
-            elif cmd[0] == 'end':
-                break
+                    vmm.stage2_init_benchmark()
+            else:
+                vmm.stage1_init_benchmark()
+        vmm.connect_close()
+
+    elif param == 'test_benchmark':
+        #new vmm
+        vmm = VMM()
+
+        #new VMs
+        num_vms = 2
         for vm_id in range(0, num_vms):
-            vmm.vms[vm_id].client_close()
+            vm_name = 'centos8_test%d' % vm_id
+            vmm.new_vm(vm_id, vm_name)
+
+        vmm.connect_client()
+        vmm.init_mode('test_benchmark')
+        for i in range(0, 2):
+            vmm.init_benchmark()
+            vmm.run_benchmark()
+        vmm.connect_close()
+
     elif param == 'sst':
         sst = SST()
         #sst.test()
         sst.tf(4) #num is the number of physical cores
     elif param == 'rdt':
         rdt = RDT()
-        num_cores = 8
+        num_cores = 4
         vmm.set_cores(0, num_cores)
-        rdt.set_llc_range(vmm, 0, 1, 3)
+        vmm.set_cores(1, num_cores)
+        #rdt.set_llc_range(vmm, 0, 1, 3)
         rdt.set_mb(vmm, 0, 30)
+        rdt.set_mb(vmm, 1, 50)
+        rdt.set_llc_bitlist(vmm, 0, [1, 1, 1, 0,   0, 0, 0, 0,   0, 0, 0])
+        rdt.set_llc_bitlist(vmm, 1, [0, 0, 0, 1,   1, 1, 0, 0,   0, 0, 0])
 
         #rdt.show()
     elif param == 'clean':
