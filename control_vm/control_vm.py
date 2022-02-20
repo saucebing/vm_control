@@ -599,10 +599,6 @@ class VMM:
 
             self.vms[0].llc_range = 11
             self.vms[1].llc_range = 11
-            self.vms[0].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
-            self.vms[0].llc_ways_end = random.randint(self.vms[0].llc_ways_beg + 1, 11)
-            self.vms[1].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
-            self.vms[1].llc_ways_end = random.randint(self.vms[1].llc_ways_beg + 1, 11)
             self.vms[0].memb = 100
             self.vms[1].memb = 100
 
@@ -621,11 +617,6 @@ class VMM:
             self.vms[0].llc_ways_end += 1
             self.vms[1].llc_ways_beg -= 1
         elif self.mode == 'super_share':
-            self.vms[0].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
-            self.vms[0].llc_ways_end = random.randint(self.vms[0].llc_ways_beg + 1, 11)
-            self.vms[1].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
-            self.vms[1].llc_ways_end = random.randint(self.vms[1].llc_ways_beg + 1, 11)
-        elif self.mode == 'test_benchmark':
             self.vms[0].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
             self.vms[0].llc_ways_end = random.randint(self.vms[0].llc_ways_beg + 1, 11)
             self.vms[1].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
@@ -677,13 +668,6 @@ class VMM:
             self.vms[0].llc_ways_end = random.randint(self.vms[0].llc_ways_beg + 1, 11)
             self.vms[1].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
             self.vms[1].llc_ways_end = random.randint(self.vms[1].llc_ways_beg + 1, 11)
-        elif self.mode == 'test_benchmark':
-            self.clear_records() #the old data should be saved!
-            self.run_index += 1 #new file
-            self.vms[0].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
-            self.vms[0].llc_ways_end = random.randint(self.vms[0].llc_ways_beg + 1, 11)
-            self.vms[1].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
-            self.vms[1].llc_ways_end = random.randint(self.vms[1].llc_ways_beg + 1, 11)
 
     def run_benchmark(self):
         cmd = [None] * num_vms
@@ -706,6 +690,23 @@ class VMM:
                     self.vms[vm_id].send('end:0')
             elif cmd[0] == 'end':
                 break
+
+    def test_benchmark(self, llc_ways_list):
+        #new VMs
+        num_vms = 2
+        for vm_id in range(0, num_vms):
+            vm_name = 'centos8_test%d' % vm_id
+            self.new_vm(vm_id, vm_name)
+
+        for vm in self.vms:
+            vm.llc_ways_beg = llc_ways_list[vm.vm_id][0]
+            vm.llc_ways_end = llc_ways_list[vm.vm_id][1]
+
+        self.connect_client()
+        self.init_mode('test_benchmark')
+        self.init_benchmark()
+        self.run_benchmark()
+        self.connect_close()
 
     def read_records(self, data_dir, is_print = True):
         files = os.listdir(data_dir)
@@ -1152,18 +1153,15 @@ if __name__ == "__main__":
         #new vmm
         vmm = VMM()
 
-        #new VMs
         num_vms = 2
+        llc_ways_list = []
         for vm_id in range(0, num_vms):
-            vm_name = 'centos8_test%d' % vm_id
-            vmm.new_vm(vm_id, vm_name)
-
-        vmm.connect_client()
-        vmm.init_mode('test_benchmark')
-        for i in range(0, 2):
-            vmm.init_benchmark()
-            vmm.run_benchmark()
-        vmm.connect_close()
+            llc_ways = []
+            t = random.randint(0, 9)
+            llc_ways.append(t) #because 10 can not be used isolatedly
+            llc_ways.append(random.randint(t + 1, 11))
+            llc_ways_list.append(llc_ways)
+        vmm.test_benchmark(llc_ways_list)
 
     elif param == 'sst':
         sst = SST()
