@@ -428,11 +428,11 @@ class VMM:
         elif self.mode == 'begin_core':
             return begin_core == num_cores
         elif self.mode == 'llc':
-            return vmm.vms[0].llc_ways_end == 11
+            return self.vms[0].llc_ways_end == 11
         elif self.mode == 'memb':
-            return vmm.vms[0].memb == 100
+            return self.vms[0].memb == 100
         elif self.mode == 'share_llc':
-            return vmm.vms[0].llc_ways_end == vmm.vms[0].llc_range
+            return self.vms[0].llc_ways_end == self.vms[0].llc_range
         elif self.mode == 'super_share':
             return True
 
@@ -440,7 +440,7 @@ class VMM:
         if self.mode == 'num_cores' or self.mode == 'begin_core' or self.mode == 'llc' or self.mode == 'memb':
             return self.run_index == len(self.benchs) - 1
         elif self.mode == 'share_llc':
-            return vmm.vms[0].llc_range == 11
+            return self.vms[0].llc_range == 11
         elif self.mode == 'super_share':
             return self.run_index == 5
 
@@ -450,26 +450,26 @@ class VMM:
     def clear_records(self):
         #new records
         self.records = []
-        for vm_id in range(0, num_vms):
+        for vm_id in range(0, self.num_vms):
             self.records.append([])
 
     def connect_client(self):
         debug = True
-        vmm.records = [[]] * num_vms
-        for vm_id in range(0, num_vms):
-            vmm.records[vm_id] = []
+        self.records = [[]] * self.num_vms
+        for vm_id in range(0, self.num_vms):
+            self.records[vm_id] = []
             if not debug:
-                vmm.force_cmd(vm_id)
+                self.force_cmd(vm_id)
             else:
-                vmm.vms[vm_id].set_port(12345)
-            vmm.vms[vm_id].connect()
+                self.vms[vm_id].set_port(12345)
+            self.vms[vm_id].connect()
 
     def connect_close(self):
-        for vm in vmm.vms:
+        for vm in self.vms:
             vm.send('all_end:0')
         time.sleep(0.2)
         for vm_id in range(0, num_vms):
-            vmm.vms[vm_id].client_close()
+            self.vms[vm_id].client_close()
 
     def preprocess(self):
         time.sleep(0.5)
@@ -514,7 +514,7 @@ class VMM:
             vm.print('avg_perf: %f' % data)
             self.record[vm_id].append(data)
 
-            exp = Exp(vmm, self.record[vm_id])
+            exp = Exp(self, self.record[vm_id])
             exp.print_title(vm_id)
             exp.print(vm_id)
 
@@ -670,15 +670,15 @@ class VMM:
             self.vms[1].llc_ways_end = random.randint(self.vms[1].llc_ways_beg + 1, 11)
 
     def run_benchmark(self):
-        cmd = [None] * num_vms
-        data = [None] * num_vms
+        cmd = [None] * self.num_vms
+        data = [None] * self.num_vms
         num_cores = 0 
         begin_core = 0
 
         for vm in self.vms:
             vm.send('begin:0')
         while True:
-            for vm_id in range(0, num_vms):
+            for vm_id in range(0, self.num_vms):
                 (cmd[vm_id], data[vm_id]) = decode(self.vms[vm_id].recv())
             if cmd[0] == 'begin':   #Only vm 0 is the master node
                 self.preprocess()
@@ -686,26 +686,33 @@ class VMM:
                 self.vms[0].data = data[0]
                 self.vms[1].data = data[1]
                 self.postprocess()
-                for vm_id in range(0, num_vms):
+                for vm_id in range(0, self.num_vms):
                     self.vms[vm_id].send('end:0')
             elif cmd[0] == 'end':
                 break
 
-    def test_benchmark(self, llc_ways_list):
+    def pre_test_benchmark(self):
         #new VMs
         num_vms = 2
         for vm_id in range(0, num_vms):
             vm_name = 'centos8_test%d' % vm_id
             self.new_vm(vm_id, vm_name)
 
+        self.connect_client()
+        self.init_mode('test_benchmark')
+
+    def test_benchmark(self, llc_ways_list):
         for vm in self.vms:
             vm.llc_ways_beg = llc_ways_list[vm.vm_id][0]
             vm.llc_ways_end = llc_ways_list[vm.vm_id][1]
 
-        self.connect_client()
-        self.init_mode('test_benchmark')
+        self.clear_records()
         self.init_benchmark()
         self.run_benchmark()
+        ipcs = [self.records[0][0][0][10], self.records[0][0][1][10]]
+        return ipcs
+
+    def aft_test_benchmark(self):
         self.connect_close()
 
     def read_records(self, data_dir, is_print = True):
@@ -1161,7 +1168,18 @@ if __name__ == "__main__":
             llc_ways.append(t) #because 10 can not be used isolatedly
             llc_ways.append(random.randint(t + 1, 11))
             llc_ways_list.append(llc_ways)
+        print(llc_ways_list)
+        vmm.pre_test_benchmark()
         vmm.test_benchmark(llc_ways_list)
+        llc_ways_list[0][0] = 0
+        llc_ways_list[0][1] = 11
+        vmm.test_benchmark(llc_ways_list)
+        llc_ways_list[0][0] = 5
+        llc_ways_list[0][1] = 7
+        llc_ways_list[1][0] = 4
+        llc_ways_list[1][1] = 9
+        vmm.test_benchmark(llc_ways_list)
+        vmm.aft_test_benchmark()
 
     elif param == 'sst':
         sst = SST()
