@@ -331,7 +331,7 @@ class VMM:
         vm.bind_mem()
 
     def get_rdt(self):
-        exec_cmd('pqos -i 60 -t 6')
+        exec_cmd('pqos -i 50 -t 5')
         res = get_res()
         #print(res)
         res = res.split('\n')
@@ -487,7 +487,7 @@ class VMM:
             elif self.mode == 'super_share' or self.mode == 'share_llc' or self.mode == 'test_benchmark':
                 vm.client.send('limited_time:%d %s' % (vm.num_cores, self.benchs[self.bench_id]))
 
-        time.sleep(0.5)
+        time.sleep(1.5)
         self.record = [None] * self.num_vms
         num_sample = 1
         res = self.get_metrics(num_sample)
