@@ -171,6 +171,7 @@ if param == 'test':
     #run_parsec_parallel('4 parsec.ferret', parsec_scale, parsec_times, 18)
     #run_NPB_parallel('sp', 4, 1)
     limited_time = 15
+    os.system("make run")
     run_parsec_parallel('4 parsec.swaptions', parsec_scale, parsec_times, 1, limited_time)
     #for bench_id in range(6, len(benchs)):
     #    run_parsec_parallel('4 %s' % benchs[bench_id], parsec_scale, parsec_times, 1)
@@ -217,6 +218,7 @@ elif param == 'run':
                             num_threads = int(int(n_cores) / 16)
                         #avg_perf = run_parsec(task, parsec_scale)
                         os.system('rm -rf /root/parsec-3.0/result/*')
+                        os.system("make run")
                         avg_perf = run_parsec_parallel(task, parsec_scale, parsec_times, num_threads, limited_time)
                         print(avg_perf, 's')
                         serv.send('res:%f' % avg_perf)
