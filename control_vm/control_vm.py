@@ -592,15 +592,25 @@ class VMM:
         elif self.mode == 'test_benchmark':
             self.vms[0].num_cores = 4
             self.vms[1].num_cores = 4
+            self.vms[2].num_cores = 4
+            self.vms[3].num_cores = 4
             self.vms[0].begin_core = 0
             self.vms[1].begin_core = 0
+            self.vms[2].begin_core = 0
+            self.vms[3].begin_core = 0
             self.vms[0].bench_id = self.benchs.index('splash2x.raytrace')
             self.vms[1].bench_id = self.benchs.index('splash2x.water_nsquared')
+            self.vms[2].bench_id = self.benchs.index('splash2x.raytrace')
+            self.vms[3].bench_id = self.benchs.index('splash2x.water_nsquared')
 
             self.vms[0].llc_range = 11
             self.vms[1].llc_range = 11
+            self.vms[2].llc_range = 11
+            self.vms[3].llc_range = 11
             self.vms[0].memb = 100
             self.vms[1].memb = 100
+            self.vms[2].memb = 100
+            self.vms[3].memb = 100
 
     def stage1_init_benchmark(self):
         if self.mode == 'num_cores':
@@ -693,7 +703,7 @@ class VMM:
 
     def pre_test_benchmark(self):
         #new VMs
-        num_vms = 2
+        num_vms = 4
         for vm_id in range(0, num_vms):
             vm_name = 'centos8_test%d' % vm_id
             self.new_vm(vm_id, vm_name)
@@ -709,7 +719,10 @@ class VMM:
         self.clear_records()
         self.init_benchmark()
         self.run_benchmark()
-        ipcs = [self.records[0][0][0][10], self.records[0][0][1][10]]
+
+        ipcs = []
+        for vm_id in range(0, self.num_vms):
+            ipcs.append(self.records[0][0][vm_id][10])
         return ipcs
 
     def aft_test_benchmark(self):
@@ -1012,7 +1025,7 @@ if __name__ == "__main__":
         vmm = VMM()
 
         #new VMs
-        num_vms = 2
+        num_vms = 4
         for vm_id in range(0, num_vms):
             vm_name = 'centos8_test%d' % vm_id
             vmm.new_vm(vm_id, vm_name)

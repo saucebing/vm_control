@@ -4,7 +4,7 @@ import copy
 from control_vm import *
 
 class PSO:
-    dim = 2 #dim
+    dim = 4 #dim
     p_num = 8 #the number of particals
     step = 0
     iters = 10
@@ -31,7 +31,7 @@ class PSO:
 
     def fun_test(self, x):
         ipcs = self.vmm.test_benchmark(x)
-        self.eprint('ipcs:', ipcs[0], ipcs[1])
+        self.eprint('ipcs:', ipcs[0], ipcs[1], ipcs[2], ipcs[3])
         return ipcs[0] + ipcs[1]
 
     def fun_test_2(self, x):
