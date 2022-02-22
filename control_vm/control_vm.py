@@ -468,7 +468,7 @@ class VMM:
         for vm in self.vms:
             vm.send('all_end:0')
         time.sleep(0.2)
-        for vm_id in range(0, num_vms):
+        for vm_id in range(0, self.num_vms):
             self.vms[vm_id].client_close()
 
     def preprocess(self):
@@ -590,12 +590,12 @@ class VMM:
             self.vms[0].memb = 100
             self.vms[1].memb = 100
         elif self.mode == 'test_benchmark':
-            self.vms[0].num_cores = 16
-            self.vms[1].num_cores = 16
+            self.vms[0].num_cores = 4
+            self.vms[1].num_cores = 4
             self.vms[0].begin_core = 0
             self.vms[1].begin_core = 0
-            self.vms[0].bench_id = 0
-            self.vms[1].bench_id = 0
+            self.vms[0].bench_id = self.benchs.index('splash2x.raytrace')
+            self.vms[1].bench_id = self.benchs.index('splash2x.water_nsquared')
 
             self.vms[0].llc_range = 11
             self.vms[1].llc_range = 11

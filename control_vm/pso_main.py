@@ -21,10 +21,17 @@ class PSO:
     p_best = [] #the position of local minima
     g_best = [] #the position of global minima
     vmm = None
+    eprint_bool = True
+    eprint_f = None
     
+    def eprint(self, *args, **kwargs):
+        self.eprint_f = open('pso.log', 'a+')
+        print(*args, file=self.eprint_f, **kwargs)
+        self.eprint_f.close()
+
     def fun_test(self, x):
         ipcs = self.vmm.test_benchmark(x)
-        print('ipcs:', ipcs[0], ipcs[1])
+        self.eprint('ipcs:', ipcs[0], ipcs[1])
         return ipcs[0] + ipcs[1]
 
     def fun_test_2(self, x):
@@ -49,23 +56,23 @@ class PSO:
 
     def print_subdata(self, x):
         for j in range(0, self.dim):
-            print("[%d %d], " % (x[j][0], x[j][1]), end = '')
-        print("")
+            self.eprint("[%d %d], " % (x[j][0], x[j][1]), end = '')
+        self.eprint("")
 
     def print_data(self, x):
         for i in range(0, self.p_num):
-            print("%d: " % i, end = '')
+            self.eprint("%d: " % i, end = '')
             for j in range(0, self.dim):
-                print("[%d %d], " % (x[i][j][0], x[i][j][1]), end = '')
-            print("")
-        print("")
+                self.eprint("[%d %d], " % (x[i][j][0], x[i][j][1]), end = '')
+            self.eprint("")
+        self.eprint("")
 
     def sum_data(self, x):
         res = [0] * 11
         for i in range(0, self.dim):
             for j in range(x[i][0], x[i][1]):
                 res[j] += 1
-#print('sum_data: ', res)
+#self.eprint('sum_data: ', res)
         return res
 
     def cover_all(self, x):
@@ -113,24 +120,24 @@ class PSO:
                 rand1.append(rand11)
             self.pos.append(rand0)
             self.spd.append(rand1)
-        #print("self.spd", self.spd)
-        #print("self.pos", self.pos)
+        #self.eprint("self.spd", self.spd)
+        #self.eprint("self.pos", self.pos)
         for i in range(0, self.p_num):
             temp = self.fun_test(self.pos[i])
             self.f_test[i] = temp
             self.p_best[i] = copy.deepcopy(self.pos[i])
         maxPos = self.f_test.index(max(self.f_test))
         self.g_best = copy.deepcopy(self.p_best[maxPos])
-        #print("self.p_best", self.p_best)
-        #print("self.f_test", self.f_test)
-        #print("minPos:", minPos)
-        #print("self.g_best", self.g_best)
+        #self.eprint("self.p_best", self.p_best)
+        #self.eprint("self.f_test", self.f_test)
+        #self.eprint("minPos:", minPos)
+        #self.eprint("self.g_best", self.g_best)
         for j in range(0, self.dim):
             if not j == self.dim - 1:
-                print(self.g_best[j], ", ", end='')
+                self.eprint(self.g_best[j], ", ", end='')
             else:
-                print(self.g_best[j], " - ", self.f_test[maxPos])
-        print("=============================================")
+                self.eprint(self.g_best[j], " - ", self.f_test[maxPos])
+        self.eprint("=============================================")
 
     def run(self):
         omega_init = 0.5
@@ -141,12 +148,12 @@ class PSO:
         #beta = 1
         for step in range(1, self.iters):
             self.step = step
-            print("step = %d" % self.step)
+            self.eprint("step = %d" % self.step)
             #self.print_data(self.pos)
             #omega = (omega_init - omega_end) * (self.iters - step) / self.iters + omega_end;
             #omega = omega_init
             omega = 1
-            #print("omega", omega)
+            #self.eprint("omega", omega)
             for i in range(0, self.p_num):
                 rand0 = random.random()
                 rand1 = random.random()
@@ -154,7 +161,7 @@ class PSO:
 #                j = random.randint(0, self.dim - 1)
 #                k = random.randint(0, self.subdim - 1)
 #                l = random.randint(0, 1)
-##print('j = %d, k = %d, l = %d' % (j, k, l))
+##self.eprint('j = %d, k = %d, l = %d' % (j, k, l))
 #                if l == 0: #up
 #                    if k == 0: #beg
 #                        if self.pos[i][j][0] + 1 < self.pos[i][j][1]:
@@ -213,28 +220,28 @@ class PSO:
                             self.pos[i][j][k] = self.pos_min
                         if self.pos[i][j][k] > self.pos_max:
                             self.pos[i][j][k] = self.pos_max
-            #print("self.spd", self.spd)
-            #print("self.pos", self.pos)
+            #self.eprint("self.spd", self.spd)
+            #self.eprint("self.pos", self.pos)
             for i in range(0, self.p_num):
                 temp = self.fun_test(self.pos[i])
-                print('%d: ' % i, self.pos[i], '-', temp)
+                self.eprint('%d: ' % i, self.pos[i], '-', temp)
                 if temp > self.f_test[i]:
                     self.f_test[i] = temp
                     self.p_best[i] = copy.deepcopy(self.pos[i])
             maxPos = self.f_test.index(max(self.f_test))
             self.g_best = copy.deepcopy(self.p_best[maxPos])
-            #print("self.p_best", self.p_best)
-            #print("self.f_test", self.f_test)
-            #print("minPos:", minPos)
-            #print("self.g_best", self.g_best)
-            #print(step, ": ")
-            print("step: %03d" % self.step, end="   ")
+            #self.eprint("self.p_best", self.p_best)
+            #self.eprint("self.f_test", self.f_test)
+            #self.eprint("minPos:", minPos)
+            #self.eprint("self.g_best", self.g_best)
+            #self.eprint(step, ": ")
+            self.eprint("step: %03d" % self.step, end="   ")
             for j in range(0, self.dim):
                 if not j == self.dim - 1:
-                    print(self.g_best[j], ", ", end='')
+                    self.eprint(self.g_best[j], ", ", end='')
                 else:
-                    print(self.g_best[j], " - ", self.f_test[maxPos])
-            print("=============================================")
+                    self.eprint(self.g_best[j], " - ", self.f_test[maxPos])
+            self.eprint("=============================================")
 
         self.vmm.aft_test_benchmark()
 
