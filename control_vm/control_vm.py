@@ -112,6 +112,7 @@ class color:
     beg7 = red + bold
 
 class VM:
+    vmm = None
     vm_name = ''
     vm_id = 0
     ip = ''
@@ -125,21 +126,23 @@ class VM:
     data = 0 #running time
 
     llc_ways_beg = 0
-    llc_ways_end = 11
+    llc_ways_end = 1
     llc_bitlist = []
     memb = 100
     
     llc_range = 1
 
-    def __init__(self, vm_id, vm_name):
+    def __init__(self, vmm, vm_id, vm_name):
+        self.vmm = vmm
         self.vm_id = vm_id
         self.vm_name = vm_name
         self.client = client.CLIENT()
         state = self.get_state()
 
+        self.llc_range = self.vmm.LLC_MAX
         self.llc_ways_beg = 0
-        self.llc_ways_end = 11
-        self.llc_bitlist = [1] * 11
+        self.llc_ways_end = self.vmm.LLC_MAX
+        self.llc_bitlist = [1] * self.vmm.LLC_MAX
         self.memb = 100
 
         self.llc_range = 1
@@ -257,6 +260,7 @@ class VM:
         exec_cmd(cmd, vm_id = self.vm_id)
 
 class VMM:
+    LLC_MAX = 8
     maps_vm_core = bidict()
     visited = []
     vms = []
@@ -298,7 +302,7 @@ class VMM:
         VMM.visited = [False] * VMM.N_CORE
 
     def new_vm(self, vm_id, vm_name):
-        vm = VM(vm_id, vm_name)
+        vm = VM(self, vm_id, vm_name)
         self.vms.append(vm)
         self.num_vms = len(self.vms)
         self.params.append([])
@@ -428,7 +432,7 @@ class VMM:
         elif self.mode == 'begin_core':
             return begin_core == num_cores
         elif self.mode == 'llc':
-            return self.vms[0].llc_ways_end == 11
+            return self.vms[0].llc_ways_end == VMM.LLC_MAX
         elif self.mode == 'memb':
             return self.vms[0].memb == 100
         elif self.mode == 'share_llc':
@@ -440,7 +444,7 @@ class VMM:
         if self.mode == 'num_cores' or self.mode == 'begin_core' or self.mode == 'llc' or self.mode == 'memb':
             return self.run_index == len(self.benchs) - 1
         elif self.mode == 'share_llc':
-            return self.vms[0].llc_range == 11
+            return self.vms[0].llc_range == VMM.LLC_MAX
         elif self.mode == 'super_share':
             return self.run_index == 5
 
@@ -472,7 +476,7 @@ class VMM:
             self.vms[vm_id].client_close()
 
     def preprocess(self):
-        time.sleep(0.5)
+        time.sleep(3)
         for vm in self.vms:
             self.bench_id = vm.bench_id
             vm_id = vm.vm_id
@@ -487,7 +491,7 @@ class VMM:
             elif self.mode == 'super_share' or self.mode == 'share_llc' or self.mode == 'test_benchmark':
                 vm.client.send('limited_time:%d %s' % (vm.num_cores, self.benchs[self.bench_id]))
 
-        time.sleep(1.5)
+        time.sleep(3)
         self.record = [None] * self.num_vms
         num_sample = 1
         res = self.get_metrics(num_sample)
@@ -557,7 +561,7 @@ class VMM:
             self.vms[0].begin_core = 0
             self.vms[0].bench_id = self.run_index
             self.vms[0].llc_ways_end = 0
-            self.vms[0].llc_ways_end = 11
+            self.vms[0].llc_ways_end = VMM.LLC_MAX
             self.vms[0].memb = 10
         elif self.mode == 'share_llc':
             self.vms[0].num_cores = 16
@@ -581,12 +585,12 @@ class VMM:
             self.vms[1].begin_core = 0
             self.vms[0].bench_id = self.benchs.index('splash2x.water_nsquared')
             self.vms[1].bench_id = self.benchs.index('splash2x.water_nsquared')
-            self.vms[0].llc_range = 11
-            self.vms[1].llc_range = 11
+            self.vms[0].llc_range = VMM.LLC_MAX
+            self.vms[1].llc_range = VMM.LLC_MAX
             self.vms[0].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
-            self.vms[0].llc_ways_end = random.randint(self.vms[0].llc_ways_beg + 1, 11)
+            self.vms[0].llc_ways_end = random.randint(self.vms[0].llc_ways_beg + 1, VMM.LLC_MAX)
             self.vms[1].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
-            self.vms[1].llc_ways_end = random.randint(self.vms[1].llc_ways_beg + 1, 11)
+            self.vms[1].llc_ways_end = random.randint(self.vms[1].llc_ways_beg + 1, VMM.LLC_MAX)
             self.vms[0].memb = 100
             self.vms[1].memb = 100
         elif self.mode == 'test_benchmark':
@@ -599,14 +603,14 @@ class VMM:
             self.vms[2].begin_core = 0
             self.vms[3].begin_core = 0
             self.vms[0].bench_id = self.benchs.index('splash2x.raytrace')
-            self.vms[1].bench_id = self.benchs.index('splash2x.water_nsquared')
+            self.vms[1].bench_id = self.benchs.index('splash2x.raytrace')
             self.vms[2].bench_id = self.benchs.index('splash2x.raytrace')
-            self.vms[3].bench_id = self.benchs.index('splash2x.water_nsquared')
+            self.vms[3].bench_id = self.benchs.index('splash2x.raytrace')
 
-            self.vms[0].llc_range = 11
-            self.vms[1].llc_range = 11
-            self.vms[2].llc_range = 11
-            self.vms[3].llc_range = 11
+            self.vms[0].llc_range = VMM.LLC_MAX
+            self.vms[1].llc_range = VMM.LLC_MAX
+            self.vms[2].llc_range = VMM.LLC_MAX
+            self.vms[3].llc_range = VMM.LLC_MAX
             self.vms[0].memb = 100
             self.vms[1].memb = 100
             self.vms[2].memb = 100
@@ -628,9 +632,9 @@ class VMM:
             self.vms[1].llc_ways_beg -= 1
         elif self.mode == 'super_share':
             self.vms[0].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
-            self.vms[0].llc_ways_end = random.randint(self.vms[0].llc_ways_beg + 1, 11)
+            self.vms[0].llc_ways_end = random.randint(self.vms[0].llc_ways_beg + 1, VMM.LLC_MAX)
             self.vms[1].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
-            self.vms[1].llc_ways_end = random.randint(self.vms[1].llc_ways_beg + 1, 11)
+            self.vms[1].llc_ways_end = random.randint(self.vms[1].llc_ways_beg + 1, VMM.LLC_MAX)
 
     def stage2_init_benchmark(self):
         if self.mode == 'num_cores':
@@ -675,9 +679,9 @@ class VMM:
             self.vms[0].bench_id = self.benchs.index('splash2x.water_nsquared')
             self.vms[1].bench_id = self.benchs.index('splash2x.water_nsquared')
             self.vms[0].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
-            self.vms[0].llc_ways_end = random.randint(self.vms[0].llc_ways_beg + 1, 11)
+            self.vms[0].llc_ways_end = random.randint(self.vms[0].llc_ways_beg + 1, VMM.LLC_MAX)
             self.vms[1].llc_ways_beg = random.randint(0, 9) #because 10 can not be used isolatedly
-            self.vms[1].llc_ways_end = random.randint(self.vms[1].llc_ways_beg + 1, 11)
+            self.vms[1].llc_ways_end = random.randint(self.vms[1].llc_ways_beg + 1, VMM.LLC_MAX)
 
     def run_benchmark(self):
         cmd = [None] * self.num_vms
@@ -876,7 +880,7 @@ class RDT:
         return llc_ways
 
     def list2bit_list(self, lst):
-        bit_list = [0] * 11
+        bit_list = [0] * VMM.LLC_MAX
         for way_id in lst:
             bit_list[way_id] = 1
         return bit_list
@@ -918,7 +922,7 @@ class RDT:
             else:
                 bit_list.append(0)
             bit = bit >> 1
-        while len(bit_list) < 11:
+        while len(bit_list) < VMM.LLC_MAX:
             bit_list.append(0)
         return bit_list
 
@@ -1179,13 +1183,13 @@ if __name__ == "__main__":
             llc_ways = []
             t = random.randint(0, 9)
             llc_ways.append(t) #because 10 can not be used isolatedly
-            llc_ways.append(random.randint(t + 1, 11))
+            llc_ways.append(random.randint(t + 1, VMM.LLC_MAX))
             llc_ways_list.append(llc_ways)
         print(llc_ways_list)
         vmm.pre_test_benchmark()
         vmm.test_benchmark(llc_ways_list)
         llc_ways_list[0][0] = 0
-        llc_ways_list[0][1] = 11
+        llc_ways_list[0][1] = VMM.LLC_MAX
         vmm.test_benchmark(llc_ways_list)
         llc_ways_list[0][0] = 5
         llc_ways_list[0][1] = 7
