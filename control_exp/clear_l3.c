@@ -7,7 +7,7 @@ int main() {
     char *b = malloc(SIZE);
     int i = 0;
     for(i = 0 ; i < SIZE ; i ++) {
-        a[i] = i;
+        a[i] = rand() % 128;
     }
     for(i = 0 ; i < 3 ; i ++) {
         memcpy(b, a, SIZE);
