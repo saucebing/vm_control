@@ -335,7 +335,7 @@ class VMM:
         vm.bind_mem()
 
     def get_rdt(self):
-        exec_cmd('pqos -i 50 -t 5')
+        exec_cmd('pqos -i 20 -t 2')
         res = get_res()
         #print(res)
         res = res.split('\n')
@@ -476,7 +476,7 @@ class VMM:
             self.vms[vm_id].client_close()
 
     def preprocess(self):
-        time.sleep(3)
+        time.sleep(1)
         for vm in self.vms:
             self.bench_id = vm.bench_id
             vm_id = vm.vm_id
@@ -491,7 +491,7 @@ class VMM:
             elif self.mode == 'super_share' or self.mode == 'share_llc' or self.mode == 'test_benchmark':
                 vm.client.send('limited_time:%d %s' % (vm.num_cores, self.benchs[self.bench_id]))
 
-        time.sleep(3)
+        time.sleep(0.2)
         self.record = [None] * self.num_vms
         num_sample = 1
         res = self.get_metrics(num_sample)
@@ -602,10 +602,10 @@ class VMM:
             self.vms[1].begin_core = 0
             self.vms[2].begin_core = 0
             self.vms[3].begin_core = 0
-            self.vms[0].bench_id = self.benchs.index('splash2x.raytrace')
-            self.vms[1].bench_id = self.benchs.index('splash2x.raytrace')
-            self.vms[2].bench_id = self.benchs.index('splash2x.raytrace')
-            self.vms[3].bench_id = self.benchs.index('splash2x.raytrace')
+            self.vms[0].bench_id = self.benchs.index('splash2x.water_nsquared')
+            self.vms[1].bench_id = self.benchs.index('splash2x.water_nsqaured')
+            self.vms[2].bench_id = self.benchs.index('splash2x.water_nsqaured')
+            self.vms[3].bench_id = self.benchs.index('splash2x.water_nsquared')
 
             self.vms[0].llc_range = VMM.LLC_MAX
             self.vms[1].llc_range = VMM.LLC_MAX
