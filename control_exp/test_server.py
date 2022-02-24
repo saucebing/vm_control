@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import os, sys, time, subprocess, tempfile, re
 import server
+import signal
 
 out_temp = [None] * 1024
 fileno = [None] * 1024
@@ -14,7 +15,7 @@ def exec_cmd(cmd, index = 0, wait = True):
     #out_temp = tempfile.SpooledTemporaryFile(bufsize=1000 * 1000)
     out_temp[index] = tempfile.SpooledTemporaryFile()
     fileno[index] = out_temp[index].fileno()
-    p1 = subprocess.Popen(cmd, stdout = fileno[index], stderr = fileno[index], shell=True)
+    p1 = subprocess.Popen(cmd, stdout = fileno[index], stderr = fileno[index], shell=True, close_fds=True, preexec_fn=os.setsid)
     if wait:
         p1.wait()
     out_temp[index].seek(0)
@@ -28,7 +29,7 @@ def parallel_cmd(cmd, num, wait = True):
         fileno[i] = out_temp[i].fileno()
         real_cmd = '%s %d' % (cmd, i)
         print('CMD: ', real_cmd)
-        p.append(subprocess.Popen(real_cmd, stdout = fileno[i], stderr = fileno[i], shell=True))
+        p.append(subprocess.Popen(real_cmd, stdout = fileno[i], stderr = fileno[i], shell=True, close_fds=True, preexec_fn=os.setsid))
     for i in range(0, num):
         if wait:
             p[i].wait()
@@ -63,7 +64,7 @@ def run_parsec(task, scale, times, limited_time = 0):
         p = exec_cmd(cmd, wati = False)
         if limited_time != 0:
             time.sleep(limited_time)
-            p.terminate()
+            os.killpg(p.pid, signal.SIGUSR1)
         else:
             p.wait()
         res = get_res()
@@ -92,7 +93,7 @@ def run_parsec_parallel(task, scale, times, n_proc, limited_time = 0):
         if limited_time != 0:
             time.sleep(limited_time)
             for p1 in p:
-                p1.terminate()
+                os.killpg(p1.pid, signal.SIGUSR1)
         else:
             for p1 in p:
                 p1.wait()
@@ -133,7 +134,7 @@ def run_NPB_parallel(task_name, n_thread, n_proc, limited_time = 0):
         if limited_time != 0:
             time.sleep(limited_time)
             for p1 in p:
-                p1.terminate()
+                os.killpg(p1.pid, signal.SIGUSR1)
         else:
             for p1 in p:
                 p1.wait()
