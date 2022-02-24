@@ -12,7 +12,7 @@ class PSO:
     pi = 3.1415
     v_max = 1
     v_min = -1
-    pos_max = 11
+    pos_max = VMM.LLC_MAX
     pos_min = 0
     subdim = 2
     f_test = [] #the value of local minima
@@ -25,6 +25,9 @@ class PSO:
     eprint_f = None
     
     def eprint(self, *args, **kwargs):
+        if self.eprint_bool:
+            exec_cmd("rm pso.log")
+            self.eprint_bool = False
         self.eprint_f = open('pso.log', 'a+')
         print(*args, file=self.eprint_f, **kwargs)
         self.eprint_f.close()
@@ -36,13 +39,13 @@ class PSO:
 
     def fun_test_2(self, x):
         res = 0
-        stat = [0] * 11
+        stat = [0] * VMM.LLC_MAX
         for i in range(0, self.dim):
             for j in range(x[i][0], x[i][1]): 
                 stat[j] += 1
         #for j in range(0, self.subdim):
         #    res += y[j]
-        for j in range(0, 11):
+        for j in range(0, VMM.LLC_MAX):
             #res += 1.0 / (stat[j] + 1)
             res += stat[j]
         return res
@@ -68,7 +71,7 @@ class PSO:
         self.eprint("")
 
     def sum_data(self, x):
-        res = [0] * 11
+        res = [0] * VMM.LLC_MAX
         for i in range(0, self.dim):
             for j in range(x[i][0], x[i][1]):
                 res[j] += 1
@@ -109,8 +112,8 @@ class PSO:
             for j in range(0, self.dim):
                 rand00 = []
                 rand11 = []
-                rand00.append(int((11 + self.dim - 1) / self.dim) * j)
-                rand00.append(min(int((11 + self.dim - 1 ) / self.dim) * (j + 1), 11))
+                rand00.append(int((VMM.LLC_MAX + self.dim - 1) / self.dim) * j)
+                rand00.append(min(int((11 + self.dim - 1 ) / self.dim) * (j + 1), VMM.LLC_MAX))
                 #t = random.randint(0, 9)
                 #rand00.append(t)
                 #rand00.append(random.randint(t + 1, 11))  
@@ -205,7 +208,7 @@ class PSO:
                             if not self.cover_all(self.pos[i]):
                                 self.spd[i][j][k] = old_spd
                                 self.pos[i][j][k] = old_pos
-                        elif k == 1 and new_pos > self.pos[i][j][0] and new_pos <= 11:
+                        elif k == 1 and new_pos > self.pos[i][j][0] and new_pos <= VMM.LLC_MAX:
                             self.spd[i][j][k] = new_spd
                             self.pos[i][j][k] = new_pos
                             if not self.cover_all(self.pos[i]):
