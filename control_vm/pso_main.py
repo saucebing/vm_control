@@ -103,6 +103,7 @@ class PSO:
         self.vmm = VMM()
         self.vmm.pre_test_benchmark()
 
+        self.eprint("step = %d" % self.step)
         for i in range(0, self.p_num):
             self.f_test.append(self.inf)
             self.p_best.append([])
@@ -127,6 +128,7 @@ class PSO:
         #self.eprint("self.pos", self.pos)
         for i in range(0, self.p_num):
             temp = self.fun_test(self.pos[i])
+            self.eprint('%d: ' % i, self.pos[i], '-', temp)
             self.f_test[i] = temp
             self.p_best[i] = copy.deepcopy(self.pos[i])
         maxPos = self.f_test.index(max(self.f_test))
@@ -135,6 +137,7 @@ class PSO:
         #self.eprint("self.f_test", self.f_test)
         #self.eprint("minPos:", minPos)
         #self.eprint("self.g_best", self.g_best)
+        self.eprint("step: %03d" % self.step, end="   ")
         for j in range(0, self.dim):
             if not j == self.dim - 1:
                 self.eprint(self.g_best[j], ", ", end='')
