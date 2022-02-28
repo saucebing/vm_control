@@ -7,7 +7,7 @@ class PSO:
     dim = 4 #dim
     p_num = 8 #the number of particals
     step = 0
-    iters = 10
+    iters = 30
     inf = 999999
     pi = 3.1415
     v_max = 1
@@ -35,7 +35,10 @@ class PSO:
     def fun_test(self, x):
         ipcs = self.vmm.test_benchmark(x)
         self.eprint('ipcs:', ipcs[0], ipcs[1], ipcs[2], ipcs[3])
-        return ipcs[0] + ipcs[1]
+        ipc_sum = 0
+        for ipc in ipcs:
+            ipc_sum += ipc
+        return ipc_sum
 
     def fun_test_2(self, x):
         res = 0
@@ -114,7 +117,7 @@ class PSO:
                 rand00 = []
                 rand11 = []
                 rand00.append(int((VMM.LLC_MAX + self.dim - 1) / self.dim) * j)
-                rand00.append(min(int((11 + self.dim - 1 ) / self.dim) * (j + 1), VMM.LLC_MAX))
+                rand00.append(min(int((VMM.LLC_MAX + self.dim - 1 ) / self.dim) * (j + 1), VMM.LLC_MAX))
                 #t = random.randint(0, 9)
                 #rand00.append(t)
                 #rand00.append(random.randint(t + 1, 11))  
@@ -148,10 +151,10 @@ class PSO:
     def run(self):
         omega_init = 0.5
         omega_end = 1e-3
+        #alpha = 2
+        #beta = 2
         alpha = 1
         beta = 1
-        #alpha = 1
-        #beta = 1
         for step in range(1, self.iters):
             self.step = step
             self.eprint("step = %d" % self.step)
@@ -159,6 +162,7 @@ class PSO:
             #omega = (omega_init - omega_end) * (self.iters - step) / self.iters + omega_end;
             #omega = omega_init
             omega = 1
+            #omega = omega_init
             #self.eprint("omega", omega)
             for i in range(0, self.p_num):
                 rand0 = random.random()
