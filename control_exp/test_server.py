@@ -197,7 +197,7 @@ elif param == 'run':
                     break
                 elif cmd == 'tasks' or cmd == 'limited_time':
                     if cmd == 'limited_time':
-                        limited_time = 6
+                        limited_time = 10
                     (n_cores, task_name) = find_str2('([0-9]+)(.*)', data)
                     n_cores = n_cores.strip()
                     task_name = task_name.strip()
