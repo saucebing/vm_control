@@ -25,10 +25,11 @@ class PSO:
     eprint_f = None
     
     def eprint(self, *args, **kwargs):
+        data_dir = 'records'
         if self.eprint_bool:
-            exec_cmd("rm pso.log")
+            exec_cmd("rm %s/pso.log" % (data_dir))
             self.eprint_bool = False
-        self.eprint_f = open('pso.log', 'a+')
+        self.eprint_f = open('%s/pso.log' % (data_dir), 'a+')
         print(*args, file=self.eprint_f, **kwargs)
         self.eprint_f.close()
 
@@ -129,6 +130,14 @@ class PSO:
             self.spd.append(rand1)
         #self.eprint("self.spd", self.spd)
         #self.eprint("self.pos", self.pos)
+
+        tmp_pos = []
+        for i in range(0, self.dim):
+            tmp_pos.append([0, VMM.LLC_MAX])
+        temp = self.fun_test(tmp_pos)
+        self.eprint('%d: ' % 0, tmp_pos, '-', temp)
+        self.eprint("=============================================")
+
         for i in range(0, self.p_num):
             temp = self.fun_test(self.pos[i])
             self.eprint('%d: ' % i, self.pos[i], '-', temp)

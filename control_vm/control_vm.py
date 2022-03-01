@@ -260,7 +260,7 @@ class VM:
         exec_cmd(cmd, vm_id = self.vm_id)
 
 class VMM:
-    LLC_MAX = 11
+    LLC_MAX = 8
     maps_vm_core = bidict()
     visited = []
     vms = []
@@ -300,6 +300,10 @@ class VMM:
         VMM.N_RDT = 5
         VMM.N_FREQ = 2
         VMM.visited = [False] * VMM.N_CORE
+
+        data_dir = 'records'
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir)
 
     def new_vm(self, vm_id, vm_name):
         vm = VM(self, vm_id, vm_name)
@@ -571,8 +575,8 @@ class VMM:
             self.vms[1].num_cores = 4
             self.vms[0].begin_core = 0
             self.vms[1].begin_core = 0
-            self.vms[0].bench_id = self.benchs.index('splash2x.water_nsquared')
-            self.vms[1].bench_id = self.benchs.index('splash2x.water_nsquared')
+            self.vms[0].bench_id = self.benchs.index('splash2x.raytrace')
+            self.vms[1].bench_id = self.benchs.index('splash2x.raytrace')
             self.vms[0].llc_range = 1
             self.vms[1].llc_range = 1
             self.vms[0].llc_ways_beg = 0
@@ -605,10 +609,10 @@ class VMM:
             self.vms[1].begin_core = 0
             self.vms[2].begin_core = 0
             self.vms[3].begin_core = 0
-            self.vms[0].bench_id = self.benchs.index('splash2x.water_nsquared')
-            self.vms[1].bench_id = self.benchs.index('splash2x.water_nsquared')
-            self.vms[2].bench_id = self.benchs.index('splash2x.water_nsquared')
-            self.vms[3].bench_id = self.benchs.index('splash2x.water_nsquared')
+            self.vms[0].bench_id = self.benchs.index('splash2x.raytrace')
+            self.vms[1].bench_id = self.benchs.index('splash2x.raytrace')
+            self.vms[2].bench_id = self.benchs.index('splash2x.raytrace')
+            self.vms[3].bench_id = self.benchs.index('splash2x.raytrace')
 
             self.vms[0].llc_range = VMM.LLC_MAX
             self.vms[1].llc_range = VMM.LLC_MAX
@@ -667,8 +671,8 @@ class VMM:
         elif self.mode == 'share_llc':
             self.clear_records() #the old data should be saved!
             self.run_index += 1 #new file
-            self.vms[0].bench_id = self.benchs.index('splash2x.water_nsquared')
-            self.vms[1].bench_id = self.benchs.index('splash2x.water_nsquared')
+            self.vms[0].bench_id = self.benchs.index('splash2x.raytrace')
+            self.vms[1].bench_id = self.benchs.index('splash2x.raytrace')
             self.vms[0].llc_range += 1
             self.vms[1].llc_range += 1
             self.vms[0].llc_ways_beg = 0
@@ -724,6 +728,7 @@ class VMM:
         self.clear_records()
         self.init_benchmark()
         self.run_benchmark()
+        self.run_index += 1
 
         ipcs = []
         for vm_id in range(0, self.num_vms):
