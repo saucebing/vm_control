@@ -128,7 +128,7 @@ def run_NPB_parallel(task_name, n_thread, n_proc, limited_time = 0):
     for i in range(0, nums): # nums times same tasks
         if n_thread == 4:
             cmd = 'time mpirun %s -np %d bin/%s.B.x' % (allow_root, n_thread, task_name)
-        elif n_thread == 16:
+        elif n_thread == 8 or n_thread == 16:
             cmd = 'time mpirun %s -np %d bin/%s.C.x' % (allow_root, n_thread, task_name)
         p = parallel_cmd(cmd, n_proc, wait = False)
         if limited_time != 0:
@@ -215,6 +215,9 @@ elif param == 'run':
                         if int(n_cores) == 4:
                             task = '4 %s' % task_name
                             num_threads = int(int(n_cores) / 4)
+                        elif int(n_cores) == 8:
+                            task = '8 %s' % task_name
+                            num_threads = int(int(n_cores) / 8)
                         elif int(n_cores) == 16:
                             task = '16 %s' % task_name
                             num_threads = int(int(n_cores) / 16)
