@@ -64,7 +64,7 @@ def run_parsec(task, scale, times, limited_time = 0):
         p = exec_cmd(cmd, wati = False)
         if limited_time != 0:
             time.sleep(limited_time)
-            os.killpg(p.pid, signal.SIGUSR1)
+            os.killpg(os.getpgid(p1.pid), signal.SIGTERM)
         else:
             p.wait()
         res = get_res()
@@ -93,7 +93,7 @@ def run_parsec_parallel(task, scale, times, n_proc, limited_time = 0):
         if limited_time != 0:
             time.sleep(limited_time)
             for p1 in p:
-                os.killpg(p1.pid, signal.SIGUSR1)
+                os.killpg(os.getpgid(p1.pid), signal.SIGTERM)
         else:
             for p1 in p:
                 p1.wait()
@@ -134,7 +134,7 @@ def run_NPB_parallel(task_name, n_thread, n_proc, limited_time = 0):
         if limited_time != 0:
             time.sleep(limited_time)
             for p1 in p:
-                os.killpg(p1.pid, signal.SIGUSR1)
+                os.killpg(os.getpgid(p1.pid), signal.SIGTERM)
         else:
             for p1 in p:
                 p1.wait()
@@ -173,7 +173,8 @@ if param == 'test':
     #run_NPB_parallel('sp', 4, 1)
     limited_time = 15
     os.system("make run")
-    run_parsec_parallel('4 parsec.swaptions', parsec_scale, parsec_times, 1, limited_time)
+    #run_parsec_parallel('4 parsec.swaptions', parsec_scale, parsec_times, 1, limited_time)
+    run_NPB_parallel('sp', 4, 1, limited_time)
     #for bench_id in range(6, len(benchs)):
     #    run_parsec_parallel('4 %s' % benchs[bench_id], parsec_scale, parsec_times, 1)
 elif param == 'run':
