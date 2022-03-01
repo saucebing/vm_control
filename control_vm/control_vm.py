@@ -486,9 +486,9 @@ class VMM:
             rdt.set_llc_range(self, vm_id, vm.llc_ways_beg, vm.llc_ways_end)
             rdt.set_mb(self, vm_id, vm.memb)
 
-            if self.mode == 'num_cores' or self.mode == 'begin_cores' or self.mode == 'llc' or self.mode == 'memb':
+            if self.mode == 'num_cores' or self.mode == 'begin_cores':
                 vm.client.send('tasks:%d %s' % (vm.num_cores, self.benchs[self.bench_id]))
-            elif self.mode == 'super_share' or self.mode == 'share_llc' or self.mode == 'test_benchmark':
+            elif self.mode == 'super_share' or self.mode == 'share_llc' or self.mode == 'test_benchmark' or self.mode == 'llc' or self.mode == 'memb':
                 vm.client.send('limited_time:%d %s' % (vm.num_cores, self.benchs[self.bench_id]))
 
         time.sleep(1)
@@ -510,8 +510,11 @@ class VMM:
             for r_vm in res_vm:
                 self.record[vm_id].append(r_vm)
 
-    def postprocess(self):
+    def postprocess(self, data):
         data_dir = 'records'
+        for vm in self.vms:
+            vm.data = data[vm.vm_id]
+
         for vm in self.vms:
             vm_id = vm.vm_id
             data = float(vm.data)
@@ -550,22 +553,22 @@ class VMM:
             self.vms[0].bench_id = self.run_index
             self.vms[1].bench_id = self.run_index
         elif self.mode == 'llc':
-            self.vms[0].num_cores = 16
+            self.vms[0].num_cores = 4
             self.vms[0].begin_core = 0
             self.vms[0].bench_id = self.run_index
-            self.vms[0].llc_ways_end = 0
+            self.vms[0].llc_ways_beg = 0
             self.vms[0].llc_ways_end = 1
             self.vms[0].memb = 100
         elif self.mode == 'memb':
-            self.vms[0].num_cores = 16
+            self.vms[0].num_cores = 4
             self.vms[0].begin_core = 0
             self.vms[0].bench_id = self.run_index
-            self.vms[0].llc_ways_end = 0
+            self.vms[0].llc_ways_beg = 0
             self.vms[0].llc_ways_end = VMM.LLC_MAX
             self.vms[0].memb = 10
         elif self.mode == 'share_llc':
-            self.vms[0].num_cores = 16
-            self.vms[1].num_cores = 16
+            self.vms[0].num_cores = 4
+            self.vms[1].num_cores = 4
             self.vms[0].begin_core = 0
             self.vms[1].begin_core = 0
             self.vms[0].bench_id = self.benchs.index('splash2x.water_nsquared')
@@ -579,8 +582,8 @@ class VMM:
             self.vms[0].memb = 100
             self.vms[1].memb = 100
         elif self.mode == 'super_share':
-            self.vms[0].num_cores = 16
-            self.vms[1].num_cores = 16
+            self.vms[0].num_cores = 4
+            self.vms[1].num_cores = 4
             self.vms[0].begin_core = 0
             self.vms[1].begin_core = 0
             self.vms[0].bench_id = self.benchs.index('splash2x.water_nsquared')
@@ -697,9 +700,7 @@ class VMM:
             if cmd[0] == 'begin':   #Only vm 0 is the master node
                 self.preprocess()
             elif cmd[0] == 'res':
-                self.vms[0].data = data[0]
-                self.vms[1].data = data[1]
-                self.postprocess()
+                self.postprocess(data)
                 for vm_id in range(0, self.num_vms):
                     self.vms[vm_id].send('end:0')
             elif cmd[0] == 'end':
@@ -1029,7 +1030,7 @@ if __name__ == "__main__":
         vmm = VMM()
 
         #new VMs
-        num_vms = 4
+        num_vms = 2
         for vm_id in range(0, num_vms):
             vm_name = 'centos8_test%d' % vm_id
             vmm.new_vm(vm_id, vm_name)
@@ -1077,7 +1078,11 @@ if __name__ == "__main__":
         vmm.read_records(data_dir)
     elif param == 'draw':
         #data_dir = 'records_20211123_one_vm_perf_thread'
-        data_dir = 'records_llc_04cores'
+        #data_dir = 'records_llc_04cores'
+        if len(sys.argv) >= 3:
+            data_dir = sys.argv[2]
+        else:
+            data_dir = 'records'
         [num_benchs, num_exps, num_vms, vms_exps_benchs] = vmm.pre_draw(data_dir, vmm.benchs)
         num_figs = 2
         xlabels = ['LLC ways', 'LLC ways']
@@ -1158,10 +1163,11 @@ if __name__ == "__main__":
         #vmm.init_mode('num_cores')
         #vmm.init_mode('llc')
         #vmm.init_mode('memb')
-        #vmm.init_mode('share_llc')
-        vmm.init_mode('super_share')
+        vmm.init_mode('share_llc')
+        #vmm.init_mode('super_share')
 
         vmm.init_benchmark()
+        print('vmm.num_vms = ', vmm.num_vms)
         while True:
             vmm.run_benchmark()
             if vmm.end_stage1(vmm.vms[0].num_cores, vmm.vms[0].begin_core):
